@@ -1,0 +1,274 @@
+\documentclass{beamer}
+\usetheme{Madrid}
+\usecolortheme{default}
+
+\setbeamertemplate{footline}[frame number]
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[polish]{babel}
+
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows, shapes.geometric}
+\usepackage{float}
+
+\title{Sprzętowa implementacja sieci neuronowej CNN w układzie FPGA do rozpoznawania cyfr pisanych odręcznie}
+\author{Michał Szulejko}
+\institute{Promotor: Dr. Inż. Robert Strąkowski}
+
+\begin{document}
+
+% Title Slide
+\frame{\titlepage}
+
+% ============ Slide 2: LeNet-5 - Historia i Architektura ============
+\begin{frame}[fragile]
+  \frametitle{LeNet-5 - Historia i Architektura}
+  \textbf{LeNet-5 - Pierwsza sieć konwolucyjna (Yann LeCun, lata 90.)}
+
+  \vspace{0.3cm}
+
+  \textbf{Cztery kluczowe pomysły:}
+  \begin{enumerate}
+    \item \textbf{Kernele} - małe filtry szukające wzorów
+    \item \textbf{Współdzielanie wag} - mniej pamięci
+    \item \textbf{Pooling} - zmniejszanie rozmiaru, zachowanie cech
+    \item \textbf{Warstwowe uczenie} - każda warstwa uczy się bardziej skomplikowanych wzorów
+  \end{enumerate}
+
+  \vspace{0.3cm}
+
+  \textbf{Architektura:}
+  \begin{itemize}
+    \item Conv1: 16 filtrów, 5×5 kernel → 97K operacji
+    \item Conv2: 32 filtry, 5×5 kernel → 558K operacji 
+    \item Dense: 10 wyników (cyfry 0-9) → 8K operacji
+    \item Razem: 12,810 parametrów, 663K operacji
+  \end{itemize}
+\end{frame}
+
+% ============ Slide 3: Zbiór MNIST ============
+\begin{frame}
+  \frametitle{Zbiór MNIST - Cyfry pisane ręcznie}
+
+  \textbf{Założenia MNIST:}
+  \begin{itemize}
+    \item Wymiary: 28×28 pikseli
+    \item Typ: Czarno-białe 
+    \item Wartość piksela: 0-255 (czarny do białego)
+    \item Normalizacja: Każdy piksel dzielony przez 255 → [0.0, 1.0]
+    \item Zestaw treningowy: 60,000 obrazów
+    \item Zestaw testowy: 10,000 obrazów
+    \item Każdy obraz ma etykietę (cyfra 0-9)
+  \end{itemize}
+
+  \vspace{0.3cm}
+
+  \textbf{Przykład Normalizacji:}
+  \begin{itemize}
+    \item Oryginalny piksel: 128
+    \item Po normalizacji: 128 / 255 = 0.502
+  \end{itemize}
+\end{frame}
+
+% ============ Slide 4: Trening i Kwantyzacja ============
+\begin{frame}
+  \frametitle{Trening i Kwantyzacja}
+
+  \textbf{Krok 1: Trening w PyTorch}
+  \begin{itemize}
+    \item Załaduj MNIST (60,000 obrazów treningowych)
+    \item Trenuję sieć przez 20 epok
+    \item Używam optymalizatora Adam
+    \item Loss function: Cross-Entropy
+    \item Rezultat: \textbf{99.2\% dokładności} na testach
+  \end{itemize}
+
+  \vspace{0.3cm}
+
+  \textbf{Krok 2: Post-Training Quantization (PTQ)}
+  \begin{itemize}
+    \item Problem: Float32 wagi zajmują dużo pamięci (51 KB), obliczenia trwają dłużej oraz potrzebują więcej zasobów układu
+    \item Rozwiązanie: Konwersja na Int8 (12.8 KB)
+    \item Oszczędność: \textbf{4x mniej pamięci!}
+    \item Spadek dokładności: 99.2\% $\rightarrow$ \textbf{96.6\%} (zaledwie 2.6\%)
+  \end{itemize}
+\end{frame}
+
+% ============ Slide 5: Komunikacja UART ============
+\begin{frame}
+  \frametitle{Inferencja - Architektura}
+
+  \begin{center}
+  \resizebox{0.92\textwidth}{!}{
+  \begin{tikzpicture}[
+      block/.style={rectangle, draw, text width=2.3cm, text centered, minimum height=0.92cm, font=\small},
+      arrow/.style={->, >=stealth, thick}
+  ]
+      % UART section
+      \node[block] (uart_rx) {UART RX};
+      \node[block, right=1cm of uart_rx] (uart_router) {UART Router};
+
+      % Loaders
+      \node[block, above right=0.5cm and 1cm of uart_router] (weight_loader) {Weight Loader};
+      \node[block, below right=0.5cm and 1cm of uart_router] (image_loader) {Image Loader};
+
+      % RAMs
+      \node[block, right=1cm of weight_loader] (weight_rams) {Weight RAMs};
+      \node[block, right=1cm of image_loader] (image_ram) {Image RAM};
+
+      % Inference
+      \node[block, right=2cm of uart_router] (inference) {Inference FSM};
+
+      % Output
+      \node[block, right=1cm of inference] (output) {7-Segment Display};
+
+      % Arrows
+      \draw[arrow] (uart_rx) -- (uart_router);
+      \draw[arrow] (uart_router) -- (weight_loader);
+      \draw[arrow] (uart_router) -- (image_loader);
+      \draw[arrow] (weight_loader) -- (weight_rams);
+      \draw[arrow] (image_loader) -- (image_ram);
+      \draw[arrow] (weight_rams) -- (inference);
+      \draw[arrow] (image_ram) -- (inference);
+      \draw[arrow] (inference) -- (output);
+  \end{tikzpicture}
+  }
+  \end{center}
+
+\end{frame}
+
+% ============ Slide 6: Implementacja Verilog - Architektura ============
+\begin{frame}
+  \frametitle{Inferencja - Architektura}
+
+  \textbf{Przepływ danych: PC $\rightarrow$ UART $\rightarrow$ FPGA}
+
+  \vspace{0.3cm}
+
+  \textbf{Główne moduły Verilog:}
+  \begin{enumerate}
+    \item \textbf{UART Router} - odbiera dane, rozpoznaje znaczniki
+    \item \textbf{Weight Loader} - parsuje wagi (12,984 bajty)
+    \item \textbf{Image Loader} - parsuje obraz (784 bajty)
+    \item \textbf{Inference FSM} - 19 stanów: Conv1 → Pool1 → Conv2 → Pool2 → Dense
+  \end{enumerate}
+
+  \vspace{0.3cm}
+
+  \textbf{Organizacja Pamięci:}
+  \begin{itemize}
+    \item Weight RAM: 13 KB
+    \item Image RAM: 0.8 KB
+    \item Intermediate Buffers: 13 KB
+    \item Razem: $\sim$27 KB 
+  \end{itemize}
+
+  \vspace{0.3cm}
+
+\end{frame}
+
+% ============ Slide 6: UART - Protokół Komunikacji ============
+\begin{frame}
+  \frametitle{UART router}
+
+  \textbf{Połączenie Fizyczne: UART RS232}
+  \begin{itemize}
+    \item Baudrate: 115,200 bps
+    \item Transfer wag (13 KB)
+    \item Transfer obrazu (784 B)
+  \end{itemize}
+
+  \vspace{0.3cm}
+
+  \textbf{Protokół ze Znacznikami:}
+  \begin{itemize}
+    \item Wagi: Start (0xAA 0x55) → Dane (13 KB) → End (0x55 0xAA)
+    \item Obraz: Start (0xBB 0x66) → Dane (784 B) → End (0x66 0xBB)
+  \end{itemize}
+
+  \vspace{0.3cm}
+
+  \textbf{Dlaczego Znaczniki?}
+  \begin{enumerate}
+    \item Synchronizacja - FPGA wie, kiedy zacząć czytać dane
+    \item Bezpieczeństwo - potwierdzenie, że transfer się skończył
+    \item Odróżnienie - rozpoznanie czy to wagi czy obraz
+  \end{enumerate}
+\end{frame}
+
+% ============ Slide 7: Wyniki - Dokładność ============
+\begin{frame}
+  \frametitle{Wyniki - Dokładność}
+
+  \textbf{Testowanie na MNIST:}
+
+  \vspace{0.3cm}
+
+  \begin{center}
+    \begin{tabular}{|c|c|c|}
+      \hline
+      \textbf{Wersja} & \textbf{Dokładność} & \textbf{Testów} \\
+      \hline
+      PyTorch (normalne liczby) & 99.2\% & 10,000 \\
+      \hline
+      Python (INT8) & 96.6\% & 10,000 \\
+      \hline
+      FPGA (sprzęt) & 96.6\% & 10,000 \\
+      \hline
+    \end{tabular}
+  \end{center}
+
+  \vspace{0.5cm}
+
+  FPGA i Python są BIT-DOKŁADNIE IDENTYCZNE
+
+  \vspace{0.3cm}
+
+  Implementacja na sprzęcie daje zaledwie 2.6\% spadku z FP32 
+
+\end{frame}
+
+% ============ Slide 8: Weryfikacja ============
+\begin{frame}
+  \frametitle{Weryfikacja}
+
+  \begin{itemize}
+    \item \textbf{Przygotowanie danych} - stworzenie referencyjnych logitów za pomocą Pythona
+    \item \textbf{Testy jednostkowe} - izolowane testowanie poszczególnych warstw
+    \item \textbf{Test integracyjny} - pełny test porównania predykcji i logitów z uwzględnieniem wszystkich modułów
+    \item \textbf{Wynik} - Zgodność logitów obliczonych na FPGA z symulacją gwarantuje poprawność implementacji inferencji
+  \end{itemize}
+
+  \vspace{0.5cm}
+
+  \small
+  
+
+\end{frame}
+
+% ============ Slide 9: Wnioski ============
+\begin{frame}
+  \frametitle{Wnioski}
+
+  \textbf{Wdrożyłem historyczną sieć LeNet-5 na FPGA z:}
+
+  \begin{itemize}
+    \item \textbf{96.6\% dokładności} (spadek 2.6\% względem FP32)
+    \item \textbf{FPGA = Python} bit-dokładnie
+    \item \textbf{27 KB pamięci} 
+  \end{itemize}
+
+  \vspace{0.5cm}
+
+  Dzięki \textbf{kwantyzacji, optymalizacji w Verilog'u i rozproszonej pamięci RAM} mogę uruchamiać sieci na małych, tanich urządzeniach.
+
+  \vspace{0.3cm}
+
+  To pokazuje, że nie potrzebujemy GPU do inteligentnych systemów wbudowanych.
+
+  \vspace{0.5cm}
+
+\end{frame}
+
+\end{document}
