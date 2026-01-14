@@ -15,16 +15,21 @@ module uart_router (
     localparam WEIGHT_END1   = 8'h55, WEIGHT_END2   = 8'hAA;
     localparam IMAGE_START1  = 8'hBB, IMAGE_START2 = 8'h66;
     localparam IMAGE_END1    = 8'h66, IMAGE_END2   = 8'hBB;
-    
-    // NEW WEIGHT CALCULATION:
-    // L1 Weights: 16 * 1 * 9 = 144
-    // L1 Biases: 16 * 4 = 64
-    // L2 Weights: 32 * 16 * 9 = 4608
-    // L2 Biases: 32 * 4 = 128
-    // Dense Weights: (32*5*5) * 10 = 8000
-    // Dense Biases: 10 * 4 = 40
-    // TOTAL = 12,984 bytes
-    localparam WEIGHT_SIZE = 12984; 
+
+    // LeNet-5 Weight Calculation:
+    // Conv1 Weights: 6*1*5*5 = 150
+    // Conv1 Biases:  6*4 = 24
+    // Conv2 Weights: 16*6*5*5 = 2400
+    // Conv2 Biases:  16*4 = 64
+    // FC1 Weights:   120*400 = 48000
+    // FC1 Biases:    120*4 = 480
+    // FC2 Weights:   84*120 = 10080
+    // FC2 Biases:    84*4 = 336
+    // FC3 Weights:   10*84 = 840
+    // FC3 Biases:    10*4 = 40
+    // Tanh LUT:      256
+    // TOTAL = 62,670 bytes
+    localparam WEIGHT_SIZE = 62670;
     localparam IMAGE_SIZE = 784;
 
     wire [7:0] rx_data;

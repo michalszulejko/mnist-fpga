@@ -2,30 +2,31 @@
 
 /*
 ================================================================================
-LeNet-5 Inference Testbench
+LeNet-5 Inference Quick Testbench
 ================================================================================
-Tests 100 MNIST images and compares:
-  1. Predicted digit (FPGA vs Python)
-  2. All 10 class scores/logits (FPGA vs Python)
-  3. Reports mismatches and statistics
+Minimal testbench for rapid iteration and debugging:
+- Tests only 3 images by default (configurable)
+- Verbose state-by-state output
+- Shorter timeout (5ms per test)
+- Useful for verifying FSM fixes and initial debugging
 
-LeNet-5 Architecture:
-  Conv1: 6 filters, 5x5, padding=2 -> 6x28x28
-  Pool1: 2x2 Average -> 6x14x14
-  Conv2: 16 filters, 5x5 -> 16x10x10
-  Pool2: 2x2 Average -> 16x5x5 = 400 features
-  FC1: 400 -> 120 (Tanh)
-  FC2: 120 -> 84 (Tanh)
-  FC3: 84 -> 10 (raw logits)
+Usage:
+- Change NUM_TESTS parameter to 1, 2, or 3 for faster testing
+- Enable VERBOSE_STATE for cycle-by-cycle state monitoring
+- Use this for quick validation before running full test suite
 ================================================================================
 */
 
-module tb_inference_lenet;
+module tb_inference_lenet_quick;
 
     // =========================================================================
-    // Constants
+    // Configuration Parameters
     // =========================================================================
-    localparam NUM_TESTS = 10;
+    parameter NUM_TESTS = 3;  // Test only first 3 images
+    parameter VERBOSE_STATE = 0;  // 1 = print every state change
+    parameter SHOW_EVERY_N_CYCLES = 5000;  // Progress every N cycles
+    parameter PER_TEST_TIMEOUT = 5_000_000;   // 5ms per test
+    
     localparam IMAGE_SIZE = 784;
     localparam NUM_CLASSES = 10;
 
@@ -100,41 +101,41 @@ module tb_inference_lenet;
     reg [7:0] image_ram [0:783];
     assign img_data = image_ram[img_addr];
 
-    // Conv Weights RAM (Conv1: 150, Conv2: 2400 = 2550 total)
+    // Conv Weights RAM
     reg [7:0] conv_weights_ram [0:2549];
     assign conv_w_data = conv_weights_ram[conv_w_addr];
 
-    // Conv Biases RAM (Conv1: 6, Conv2: 16 = 22 total)
+    // Conv Biases RAM
     reg [31:0] conv_biases_ram [0:21];
     assign conv_b_data = conv_biases_ram[conv_b_addr];
 
-    // FC Weights RAM (FC1: 48000, FC2: 10080, FC3: 840 = 58920 total)
+    // FC Weights RAM
     reg [7:0] fc_weights_ram [0:58919];
     assign fc_w_data = fc_weights_ram[fc_w_addr];
 
-    // FC Biases RAM (FC1: 120, FC2: 84, FC3: 10 = 214 total)
+    // FC Biases RAM
     reg [31:0] fc_biases_ram [0:213];
     assign fc_b_data = fc_biases_ram[fc_b_addr];
 
-    // Tanh LUT (256 entries)
+    // Tanh LUT
     reg [7:0] tanh_lut_ram [0:255];
     assign tanh_data = tanh_lut_ram[tanh_addr];
 
-    // Buffer A (6*28*28 = 4704)
+    // Buffer A
     reg [7:0] buf_a_ram [0:4703];
     always @(posedge clk) begin
         if (buf_a_wr_en) buf_a_ram[buf_a_addr] <= buf_a_wr_data;
     end
     assign buf_a_rd_data = buf_a_ram[buf_a_addr];
 
-    // Buffer B (6*14*14 = 1176)
+    // Buffer B
     reg [7:0] buf_b_ram [0:1175];
     always @(posedge clk) begin
         if (buf_b_wr_en) buf_b_ram[buf_b_addr] <= buf_b_wr_data;
     end
     assign buf_b_rd_data = buf_b_ram[buf_b_addr];
 
-    // Buffer C (16*5*5 = 400)
+    // Buffer C
     reg [7:0] buf_c_ram [0:399];
     always @(posedge clk) begin
         if (buf_c_wr_en) buf_c_ram[buf_c_addr] <= buf_c_wr_data;
@@ -200,6 +201,90 @@ module tb_inference_lenet;
     always #5 clk = ~clk;
 
     // =========================================================================
+    // State Monitoring
+    // =========================================================================
+    reg [5:0] last_state;
+    integer cycle_count;
+    integer test_start_cycle;
+    reg monitoring_active;
+
+    // State name decoder
+    function [95:0] state_name;
+        input [5:0] state;
+        begin
+            case(state)
+                6'd0: state_name = "IDLE";
+                6'd1: state_name = "L1_LOAD_BIAS";
+                6'd2: state_name = "L1_LOAD_BIAS_W";
+                6'd3: state_name = "L1_PREFETCH";
+                6'd4: state_name = "L1_CONV";
+                6'd5: state_name = "L1_TANH";
+                6'd6: state_name = "L1_SAVE";
+                6'd7: state_name = "L1_POOL";
+                6'd8: state_name = "L1_POOL_CALC";
+                6'd9: state_name = "L2_LOAD_BIAS";
+                6'd10: state_name = "L2_LOAD_BIAS_W";
+                6'd11: state_name = "L2_PREFETCH";
+                6'd12: state_name = "L2_CONV";
+                6'd13: state_name = "L2_TANH";
+                6'd14: state_name = "L2_SAVE";
+                6'd15: state_name = "L2_POOL";
+                6'd16: state_name = "L2_POOL_CALC";
+                6'd17: state_name = "FC1_LOAD_BIAS";
+                6'd18: state_name = "FC1_LOAD_BIAS_W";
+                6'd19: state_name = "FC1_PREFETCH";
+                6'd20: state_name = "FC1_MULT";
+                6'd21: state_name = "FC1_TANH";
+                6'd22: state_name = "FC1_SAVE";
+                6'd23: state_name = "FC2_LOAD_BIAS";
+                6'd24: state_name = "FC2_LOAD_BIAS_W";
+                6'd25: state_name = "FC2_PREFETCH";
+                6'd26: state_name = "FC2_MULT";
+                6'd27: state_name = "FC2_TANH";
+                6'd28: state_name = "FC2_SAVE";
+                6'd29: state_name = "FC3_LOAD_BIAS";
+                6'd30: state_name = "FC3_LOAD_BIAS_W";
+                6'd31: state_name = "FC3_PREFETCH";
+                6'd32: state_name = "FC3_MULT";
+                6'd33: state_name = "FC3_NEXT";
+                6'd34: state_name = "DONE_STATE";
+                default: state_name = "UNKNOWN";
+            endcase
+        end
+    endfunction
+
+    // Monitor state changes
+    always @(posedge clk) begin
+        if (monitoring_active) begin
+            cycle_count <= cycle_count + 1;
+            
+            // Verbose state change reporting
+            if (VERBOSE_STATE && (dut.state !== last_state)) begin
+                $display("    [CYCLE %0d] State: %0s -> %0s",
+                    cycle_count, state_name(last_state), state_name(dut.state));
+                last_state <= dut.state;
+            end else if (!VERBOSE_STATE && (dut.state !== last_state)) begin
+                last_state <= dut.state;
+            end
+            
+            // Periodic progress
+            if ((cycle_count % SHOW_EVERY_N_CYCLES) == 0) begin
+                $display("    [PROGRESS] Cycle %0d | State: %0s | f_idx=%0d r=%0d c=%0d",
+                    cycle_count, state_name(dut.state), dut.f_idx, dut.r, dut.c);
+            end
+            
+            // Timeout check
+            if ((cycle_count - test_start_cycle) > PER_TEST_TIMEOUT) begin
+                $display("\n[ERROR] Test timeout at cycle %0d!", cycle_count);
+                $display("  State: %0s", state_name(dut.state));
+                $display("  Position: f_idx=%0d r=%0d c=%0d kr=%0d kc=%0d",
+                    dut.f_idx, dut.r, dut.c, dut.kr, dut.kc);
+                $finish;
+            end
+        end
+    end
+
+    // =========================================================================
     // Test Statistics
     // =========================================================================
     integer tests_passed;
@@ -211,7 +296,6 @@ module tb_inference_lenet;
     // Helper Tasks
     // =========================================================================
 
-    // Load a single image into image_ram
     task load_image;
         input integer img_idx;
         integer i;
@@ -221,10 +305,10 @@ module tb_inference_lenet;
             for (i = 0; i < IMAGE_SIZE; i = i + 1) begin
                 image_ram[i] = golden_pixels[src_addr + i];
             end
+            $display("  [LOAD] Image %0d loaded", img_idx);
         end
     endtask
 
-    // Compare FPGA scores with golden reference
     task compare_scores;
         input integer img_idx;
         reg signed [31:0] fpga_scores [0:9];
@@ -235,7 +319,6 @@ module tb_inference_lenet;
         integer max_diff;
         integer diff;
         begin
-            // Extract FPGA scores
             fpga_scores[0] = class_score_0;
             fpga_scores[1] = class_score_1;
             fpga_scores[2] = class_score_2;
@@ -247,57 +330,53 @@ module tb_inference_lenet;
             fpga_scores[8] = class_score_8;
             fpga_scores[9] = class_score_9;
 
-            // Extract golden scores
             base_addr = img_idx * NUM_CLASSES;
             for (i = 0; i < NUM_CLASSES; i = i + 1) begin
                 gold_scores[i] = golden_scores[base_addr + i];
             end
 
-            // Compare
             mismatches = 0;
             max_diff = 0;
 
             for (i = 0; i < NUM_CLASSES; i = i + 1) begin
                 diff = fpga_scores[i] - gold_scores[i];
                 if (diff < 0) diff = -diff;
-
                 if (diff > max_diff) max_diff = diff;
                 if (fpga_scores[i] !== gold_scores[i]) mismatches = mismatches + 1;
             end
 
-            // Always show score table
-            $display("  Class |      FPGA      |     Golden     | Difference");
-            $display("  ------|----------------|----------------|------------");
-            for (i = 0; i < NUM_CLASSES; i = i + 1) begin
-                $display("    %0d   | %12d | %12d | %10d %s",
-                    i, fpga_scores[i], gold_scores[i], fpga_scores[i] - gold_scores[i],
-                    (fpga_scores[i] === gold_scores[i]) ? "[OK]" : "[MM]");
-            end
-
             if (mismatches == 0) begin
                 tests_passed = tests_passed + 1;
-                $display("  [PASS] All scores match exactly");
+                $display("  [OK] Scores match perfectly (max diff: %0d)", max_diff);
             end else begin
                 tests_failed = tests_failed + 1;
-                $display("  [FAIL] %0d score mismatches detected", mismatches);
+                $display("  [MM] %0d score mismatches", mismatches);
+                $display("\n  Class |      FPGA      |     Golden     | Difference");
+                $display("  ------|----------------|----------------|------------");
+                for (i = 0; i < NUM_CLASSES; i = i + 1) begin
+                    $display("    %0d   | %12d | %12d | %10d %s",
+                        i, fpga_scores[i], gold_scores[i], fpga_scores[i] - gold_scores[i],
+                        (fpga_scores[i] === gold_scores[i]) ? "[OK]" : "[MM]");
+                end
+                $display("");
             end
         end
     endtask
 
-    // Run inference on a single image
     task run_inference;
         input integer img_idx;
+        integer test_cycles;
         begin
             $display("\n========================================");
-            $display("Test %0d: Label: %0d", img_idx + 1, golden_labels[img_idx]);
+            $display("TEST %0d: Image Index %0d", img_idx + 1, img_idx);
+            $display("========================================");
 
-            // 1. Load image
             load_image(img_idx);
-
-            // Wait for RAM to stabilize
             repeat(10) @(posedge clk);
 
-            // 2. Start inference
+            test_start_cycle = cycle_count;
+            monitoring_active = 1;
+
             @(posedge clk);
             #1;
             start = 1;
@@ -305,25 +384,28 @@ module tb_inference_lenet;
             #1;
             start = 0;
 
-            // Wait for completion
+            $display("  [START] Inference started at cycle %0d", cycle_count);
+
             wait(done);
             @(posedge clk);
+            
+            monitoring_active = 0;
+            test_cycles = cycle_count - test_start_cycle;
 
-            // 3. Check prediction
-            $display("  Predicted: %0d | Expected: %0d %s",
-                predicted_digit, golden_preds[img_idx],
-                (predicted_digit === golden_preds[img_idx]) ? "" : "[PREDICTION MISMATCH]");
+            $display("  [DONE] Inference completed in %0d cycles (%.2f us @ 100MHz)",
+                test_cycles, test_cycles * 0.01);
+            $display("  [RESULT] Expected=%0d | Predicted=%0d | Label=%0d",
+                golden_preds[img_idx], predicted_digit, golden_labels[img_idx]);
 
             if (predicted_digit === golden_preds[img_idx]) begin
                 pred_correct = pred_correct + 1;
+                $display("  [OK] Prediction correct!");
             end else begin
+                $display("  [ERROR] PREDICTION MISMATCH!");
                 pred_incorrect = pred_incorrect + 1;
             end
 
-            // Compare scores
             compare_scores(img_idx);
-
-            // Wait before next test
             repeat(10) @(posedge clk);
         end
     endtask
@@ -334,7 +416,6 @@ module tb_inference_lenet;
     integer i;
 
     initial begin
-        // Initialize
         clk = 0;
         rst = 1;
         start = 0;
@@ -342,72 +423,64 @@ module tb_inference_lenet;
         tests_failed = 0;
         pred_correct = 0;
         pred_incorrect = 0;
+        cycle_count = 0;
+        test_start_cycle = 0;
+        monitoring_active = 0;
+        last_state = 6'd0;
 
         $display("\n================================================================================");
-        $display(" LeNet-5 Inference Testbench - %0d Image Test", NUM_TESTS);
+        $display(" LeNet-5 Quick Test - Testing %0d Images", NUM_TESTS);
+        $display("================================================================================");
+        $display(" Mode: Quick validation");
+        $display(" Verbose state: %0s", VERBOSE_STATE ? "ENABLED" : "DISABLED");
+        $display(" Progress updates: Every %0d cycles", SHOW_EVERY_N_CYCLES);
+        $display(" Timeout: %0d cycles per test", PER_TEST_TIMEOUT);
         $display("================================================================================\n");
 
-        // Load memory files
         $display("Loading memory files...");
-
         $readmemh("sim_conv_weights.mem", conv_weights_ram);
         $readmemh("sim_conv_biases.mem", conv_biases_ram);
         $readmemh("sim_fc_weights.mem", fc_weights_ram);
         $readmemh("sim_fc_biases.mem", fc_biases_ram);
         $readmemh("tanh_lut.mem", tanh_lut_ram);
-
         $readmemh("test_pixels.mem", golden_pixels);
         $readmemh("test_scores.mem", golden_scores);
         $readmemh("test_preds.mem", golden_preds);
         $readmemh("test_labels.mem", golden_labels);
+        $display("  > All memory files loaded\n");
 
-        $display("  > Conv weights loaded (2550 bytes)");
-        $display("  > Conv biases loaded (22 entries)");
-        $display("  > FC weights loaded (58920 bytes)");
-        $display("  > FC biases loaded (214 entries)");
-        $display("  > Tanh LUT loaded (256 entries)");
-        $display("  > Test vectors loaded (%0d images)\n", NUM_TESTS);
-
-        // Reset
         #100;
         rst = 0;
         #100;
 
-        // Run tests on all images
         for (i = 0; i < NUM_TESTS; i = i + 1) begin
             run_inference(i);
         end
 
-        // Final Summary
         $display("\n\n================================================================================");
-        $display(" FINAL RESULTS (%0d IMAGES)", NUM_TESTS);
+        $display(" QUICK TEST RESULTS (%0d IMAGES)", NUM_TESTS);
         $display("================================================================================");
-        $display("\nPrediction Accuracy:");
-        $display("  Correct:   %0d/%0d (%.1f%%)", pred_correct, NUM_TESTS,
-            (pred_correct * 100.0) / NUM_TESTS);
-        $display("  Incorrect: %0d/%0d", pred_incorrect, NUM_TESTS);
+        $display("Prediction: %0d/%0d correct (%.1f%%)", 
+            pred_correct, NUM_TESTS, (pred_correct * 100.0) / NUM_TESTS);
+        $display("Scores:     %0d/%0d exact matches", tests_passed, NUM_TESTS);
+        $display("Cycles:     %0d total, %0d avg per image", 
+            cycle_count, cycle_count / NUM_TESTS);
+        $display("Time:       %.2f us (@ 100MHz)", cycle_count * 0.01);
 
-        $display("\nScore Comparison:");
-        $display("  Exact Matches: %0d/%0d tests", tests_passed, NUM_TESTS);
-        $display("  Mismatches:    %0d/%0d tests", tests_failed, NUM_TESTS);
-
-        if (tests_passed === NUM_TESTS) begin
-            $display("\n[SUCCESS] All %0d tests passed! FPGA matches Python exactly.", NUM_TESTS);
+        if (tests_passed === NUM_TESTS && pred_correct === NUM_TESTS) begin
+            $display("\n[SUCCESS] All quick tests passed!");
         end else begin
-            $display("\n[FAILURE] Some tests failed.");
+            $display("\n[WARNING] Some tests failed - check details above");
         end
 
-        $display("\n================================================================================\n");
+        $display("================================================================================\n");
         $finish;
     end
 
-    // =========================================================================
-    // Timeout Watchdog
-    // =========================================================================
+    // Global timeout
     initial begin
-        #5_000_000_000; // 5 Billion ns timeout (LeNet-5 takes longer)
-        $display("\n[ERROR] Simulation timeout!");
-        $display("Inference loop took too long or stalled.");
+        #50_000_000; // 50ms total
+        $display("\n[ERROR] Global timeout - simulation too long!");
         $finish;
     end
 

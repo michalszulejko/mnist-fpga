@@ -435,9 +435,22 @@ module top (
             // -------------------------------------------------------------
             // [0] Weights Loaded (Steady)
             debug_latch[0] <= weights_loaded;
-            
+
             // [1] Image Loaded (Steady)
             debug_latch[1] <= img_loaded;
+
+            // NEW DEBUG SIGNALS for weight loading:
+            // [11] Latch when ANY weight byte is received
+            if (weight_rx_ready) debug_latch[11] <= 1;
+
+            // [12] Latch when weight RAMs are being written
+            if (conv_w_wr_en || fc_w_wr_en) debug_latch[12] <= 1;
+
+            // [13] Latch when bias RAMs are being written
+            if (conv_b_wr_en || fc_b_wr_en) debug_latch[13] <= 1;
+
+            // [14] Latch when tanh LUT is being written
+            if (tanh_wr_en) debug_latch[14] <= 1;
             
             // -------------------------------------------------------------
             // CONTROL SIGNALS (Latched)
@@ -482,8 +495,14 @@ module top (
         end
     end
     
-    // Combine debug latch with RX byte count on upper LEDs
-    assign led[7:0] = debug_latch[7:0];
-    assign led[15:8] = image_loader_debug_rx_count[7:0];
+    // LED Mapping:
+    // LED[7:0]   = debug status flags (always visible)
+    // LED[11:8]  = weight loading debug signals OR image rx count bits [3:0]
+    // LED[14:12] = weight loading debug signals (latched) - always visible
+    // LED[15]    = heartbeat
+    assign led[7:0]   = debug_latch[7:0];
+    assign led[11:8]  = weights_loaded ? image_loader_debug_rx_count[3:0] : debug_latch[11:8];
+    assign led[14:12] = debug_latch[14:12];
+    assign led[15]    = debug_latch[15];
 
 endmodule

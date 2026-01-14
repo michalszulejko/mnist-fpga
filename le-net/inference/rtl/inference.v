@@ -169,7 +169,7 @@ module inference (
     reg [2:0] pool_step;
     reg signed [31:0] max_score;
 
-    // Address calculation helpers
+    // Address calculation helpers for current position
     wire signed [5:0] img_row_signed;
     wire signed [5:0] img_col_signed;
     wire [9:0] img_addr_calc;
@@ -180,6 +180,15 @@ module inference (
     assign img_in_bounds = (img_row_signed >= 0) && (img_row_signed < 28) &&
                            (img_col_signed >= 0) && (img_col_signed < 28);
     assign img_addr_calc = img_row_signed * 28 + img_col_signed;
+
+    // Address calculation helpers for NEXT position (needed for L1_CONV pipelining)
+    wire [2:0] next_kr_l1 = (kc == 4) ? kr + 1 : kr;
+    wire [2:0] next_kc_l1 = (kc == 4) ? 3'd0 : kc + 1;
+    wire signed [5:0] next_img_row = $signed({1'b0, r}) + $signed({1'b0, next_kr_l1}) - 2;
+    wire signed [5:0] next_img_col = $signed({1'b0, c}) + $signed({1'b0, next_kc_l1}) - 2;
+    wire next_img_in_bounds = (next_img_row >= 0) && (next_img_row < 28) &&
+                              (next_img_col >= 0) && (next_img_col < 28);
+    wire [9:0] next_img_addr = next_img_row * 28 + next_img_col;
 
     always @(posedge clk) begin
         if (rst) begin
@@ -262,34 +271,32 @@ module inference (
                         end else begin
                             kc <= kc + 1;
                         end
-                        // Calculate next addresses
-                        conv_w_addr <= f_idx * 25 + (kr + (kc == 4 ? 1 : 0)) * 5 +
-                                      (kc == 4 ? 0 : kc + 1);
-                        // Image address with padding
-                        if (img_in_bounds)
-                            img_addr <= img_addr_calc;
+                        // Calculate next addresses (use NEXT kr/kc, not current!)
+                        conv_w_addr <= f_idx * 25 + next_kr_l1 * 5 + next_kc_l1;
+                        // Image address for NEXT position (with padding check)
+                        if (next_img_in_bounds)
+                            img_addr <= next_img_addr;
                     end
                 end
 
                 L1_TANH: begin
-                    // Shift and prepare for tanh LUT
-                    temp_val <= acc >>> 8;
+                    // Shift and prepare for tanh LUT (SHIFT=9 to match training)
+                    temp_val <= acc >>> 9;
+                    // Set tanh address here to allow one cycle for LUT read
+                    if ((acc >>> 9) < -128)
+                        tanh_addr <= 8'd0;  // Index for -128
+                    else if ((acc >>> 9) > 127)
+                        tanh_addr <= 8'd255; // Index for 127
+                    else
+                        tanh_addr <= (acc >>> 9) + 8'd128; // Offset to 0-255
                     state <= L1_SAVE;
                 end
 
                 L1_SAVE: begin
-                    // Apply tanh via LUT
-                    // Clamp to [-128, 127] for LUT index
-                    if (temp_val < -128)
-                        tanh_addr <= 8'd0;  // Index for -128
-                    else if (temp_val > 127)
-                        tanh_addr <= 8'd255; // Index for 127
-                    else
-                        tanh_addr <= temp_val[7:0] + 8'd128; // Offset to 0-255
-
-                    // Store result (tanh output will be ready next cycle)
+                    // Apply tanh via LUT (tanh_data now valid from previous cycle)
+                    // Store result
                     buf_a_addr <= f_idx * 784 + r * 28 + c;
-                    buf_a_wr_data <= tanh_data;  // Tanh LUT output
+                    buf_a_wr_data <= tanh_data;  // Tanh LUT output (ready now)
                     buf_a_wr_en <= 1;
 
                     // Move to next position
@@ -367,14 +374,16 @@ module inference (
                                 f_idx <= 0; r <= 0; c <= 0;
                             end else begin
                                 f_idx <= f_idx + 1;
+                                state <= L1_POOL;
                             end
                         end else begin
                             r <= r + 1;
+                            state <= L1_POOL;
                         end
                     end else begin
                         c <= c + 1;
+                        state <= L1_POOL;
                     end
-                    state <= L1_POOL;
                 end
 
                 // =============================================================
@@ -427,19 +436,19 @@ module inference (
                 end
 
                 L2_TANH: begin
-                    temp_val <= acc >>> 8;
+                    temp_val <= acc >>> 9;
+                    // Set tanh address here to allow one cycle for LUT read
+                    if ((acc >>> 9) < -128)
+                        tanh_addr <= 8'd0;
+                    else if ((acc >>> 9) > 127)
+                        tanh_addr <= 8'd255;
+                    else
+                        tanh_addr <= (acc >>> 9) + 8'd128;
                     state <= L2_SAVE;
                 end
 
                 L2_SAVE: begin
-                    // Apply tanh
-                    if (temp_val < -128)
-                        tanh_addr <= 8'd0;
-                    else if (temp_val > 127)
-                        tanh_addr <= 8'd255;
-                    else
-                        tanh_addr <= temp_val[7:0] + 8'd128;
-
+                    // Apply tanh (tanh_data now valid from previous cycle)
                     buf_a_addr <= f_idx * 100 + r * 10 + c;  // 10*10 = 100
                     buf_a_wr_data <= tanh_data;
                     buf_a_wr_en <= 1;
@@ -514,14 +523,16 @@ module inference (
                                 neuron_idx <= 0;
                             end else begin
                                 f_idx <= f_idx + 1;
+                                state <= L2_POOL;
                             end
                         end else begin
                             r <= r + 1;
+                            state <= L2_POOL;
                         end
                     end else begin
                         c <= c + 1;
+                        state <= L2_POOL;
                     end
-                    state <= L2_POOL;
                 end
 
                 // =============================================================
@@ -558,19 +569,19 @@ module inference (
                 end
 
                 FC1_TANH: begin
-                    temp_val <= acc >>> 8;
+                    temp_val <= acc >>> 9;
+                    // Set tanh address here to allow one cycle for LUT read
+                    if ((acc >>> 9) < -128)
+                        tanh_addr <= 8'd0;
+                    else if ((acc >>> 9) > 127)
+                        tanh_addr <= 8'd255;
+                    else
+                        tanh_addr <= (acc >>> 9) + 8'd128;
                     state <= FC1_SAVE;
                 end
 
                 FC1_SAVE: begin
-                    // Apply tanh
-                    if (temp_val < -128)
-                        tanh_addr <= 8'd0;
-                    else if (temp_val > 127)
-                        tanh_addr <= 8'd255;
-                    else
-                        tanh_addr <= temp_val[7:0] + 8'd128;
-
+                    // Apply tanh (tanh_data now valid from previous cycle)
                     // Store FC1 output in Buffer B (reuse)
                     buf_b_addr <= neuron_idx;
                     buf_b_wr_data <= tanh_data;
@@ -619,19 +630,19 @@ module inference (
                 end
 
                 FC2_TANH: begin
-                    temp_val <= acc >>> 8;
+                    temp_val <= acc >>> 9;
+                    // Set tanh address here to allow one cycle for LUT read
+                    if ((acc >>> 9) < -128)
+                        tanh_addr <= 8'd0;
+                    else if ((acc >>> 9) > 127)
+                        tanh_addr <= 8'd255;
+                    else
+                        tanh_addr <= (acc >>> 9) + 8'd128;
                     state <= FC2_SAVE;
                 end
 
                 FC2_SAVE: begin
-                    // Apply tanh
-                    if (temp_val < -128)
-                        tanh_addr <= 8'd0;
-                    else if (temp_val > 127)
-                        tanh_addr <= 8'd255;
-                    else
-                        tanh_addr <= temp_val[7:0] + 8'd128;
-
+                    // Apply tanh (tanh_data now valid from previous cycle)
                     // Store FC2 output in Buffer C (reuse)
                     buf_c_addr <= neuron_idx;
                     buf_c_wr_data <= tanh_data;
