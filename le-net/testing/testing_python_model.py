@@ -3,57 +3,41 @@ import numpy as np
 import sys
 import torch
 from torchvision import datasets, transforms
+from tanh_lut_loader import load_tanh_lut, apply_tanh_lut
 
 # ==========================================
-# LeNet-5 Python Inference Simulation
+# 1. SETUP & CONFIG
 # ==========================================
-# This simulates the quantized FPGA inference pipeline
-# for LeNet-5 architecture.
-# ==========================================
+# Deterministic behavior
+SEED = 42
+np.random.seed(SEED)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BIN_DIR = os.path.join(SCRIPT_DIR, "..", "outputs", "bin")
 NPY_DIR = os.path.join(SCRIPT_DIR, "..", "outputs", "npy")
-MEM_DIR = os.path.join(SCRIPT_DIR, "..", "outputs", "mem")
+OUTPUTS_DIR = os.path.join(SCRIPT_DIR, "..", "outputs")
 
 # Model Constants
 INPUT_SCALE = 127.0
-SHIFT_CONV1 = 9
-SHIFT_CONV2 = 9
-SHIFT_FC1 = 9
-SHIFT_FC2 = 9
+
+# CRITICAL FIX: Scale after average pooling
+# After avg_pool (sum of 4 / 4), scale is reduced by factor of 4
+POST_POOL_SCALE = 127.0 / 4.0  # = 31.75
+
+# Per-layer SHIFT values (calibrated)
+# - Conv1, FC2: Input scale = 127 (full range)
+# - Conv2, FC1: Input scale = 31.75 (after pool divides by 4)
+SHIFT_CONV1 = 10  # Input scale = 127.0
+SHIFT_CONV2 = 8   # Input scale = 31.75 (post-pool)
+SHIFT_FC1 = 9     # Input scale = 31.75 (post-pool)
+SHIFT_FC2 = 10    # Input scale = 127.0 (after tanh)
+# FC3 has no shift
 
 # ==========================================
-# HELPER FUNCTIONS
+# 2. HELPER FUNCTIONS
 # ==========================================
-
-def load_tanh_lut():
-    """Load tanh LUT from memory file."""
-    lut_path = os.path.join(MEM_DIR, "tanh_lut.mem")
-    lut = np.zeros(256, dtype=np.int8)
-    try:
-        with open(lut_path, 'r') as f:
-            for i, line in enumerate(f):
-                if i >= 256:
-                    break
-                val = int(line.strip(), 16)
-                if val > 127:
-                    val -= 256
-                lut[i] = val
-    except FileNotFoundError:
-        # Generate default tanh LUT if file not found
-        print("Warning: tanh_lut.mem not found, generating default...")
-        for i in range(-128, 128):
-            x = i / 32.0
-            y = np.tanh(x)
-            lut[i + 128] = int(np.clip(np.round(y * 127), -127, 127))
-    return lut
-
-def tanh_lut_apply(x, lut):
-    """Apply tanh via lookup table."""
-    x_clamped = np.clip(x, -128, 127)
-    idx = (x_clamped + 128).astype(np.int32)
-    return lut[idx].astype(np.int32)
+# REMOVED: Old tanh_lut function that computed on-the-fly
+# Now using the actual LUT from tanh_lut.mem via tanh_lut_loader module
 
 def avg_pool_2x2(input_vol):
     """
@@ -64,58 +48,41 @@ def avg_pool_2x2(input_vol):
     c, h, w = input_vol.shape
     new_h, new_w = h // 2, w // 2
     output_vol = np.zeros((c, new_h, new_w), dtype=np.int32)
-
+    
     for ch in range(c):
         for r in range(new_h):
             for col in range(new_w):
-                window = input_vol[ch, r*2:r*2+2, col*2:col*2+2]
-                # Integer average: sum >> 2 (divide by 4)
-                output_vol[ch, r, col] = np.sum(window) >> 2
-
+                # Extract 2x2 window and compute average
+                window = input_vol[ch, r*2 : r*2+2, col*2 : col*2+2]
+                output_vol[ch, r, col] = np.sum(window) // 4
+                
     return output_vol
 
-def convolve_5x5_with_padding(input_vol, weights, biases, shift, tanh_lut, layer_name='conv'):
+def convolve_layer(input_vol, weights, biases, shift, tanh_lut, use_tanh=True):
     """
-    5x5 Convolution with padding=2 (maintains spatial size).
+    LeNet-5 Convolution with 5x5 kernel.
     Input: (In_Channels, H, W)
     Weights: (Out_Channels, In_Channels, 5, 5)
-    Output: (Out_Channels, H, W)
+    Output: (Out_Channels, H-4, W-4) for no padding
+           (Out_Channels, H, W) for padding=2
     """
     in_ch, h, w = input_vol.shape
     out_ch, _, k_h, k_w = weights.shape
-    pad = 2
-
-    padded = np.pad(input_vol, ((0, 0), (pad, pad), (pad, pad)), mode='constant', constant_values=0)
-    output_vol = np.zeros((out_ch, h, w), dtype=np.int32)
-
-    for f in range(out_ch):
-        bias_val = biases[f]
-        for r in range(h):
-            for c in range(w):
-                acc = 0
-                for ch in range(in_ch):
-                    window = padded[ch, r:r+5, c:c+5]
-                    w_kernel = weights[f, ch]
-                    acc += np.sum(window * w_kernel)
-
-                acc += bias_val
-                acc = acc >> shift
-                acc = tanh_lut_apply(np.array([acc]), tanh_lut)[0]
-                output_vol[f, r, c] = acc
-
-    return output_vol
-
-def convolve_5x5_no_padding(input_vol, weights, biases, shift, tanh_lut, layer_name='conv'):
-    """
-    5x5 Convolution without padding.
-    Input: (In_Channels, H, W)
-    Weights: (Out_Channels, In_Channels, 5, 5)
-    Output: (Out_Channels, H-4, W-4)
-    """
-    in_ch, h, w = input_vol.shape
-    out_ch, _, k_h, k_w = weights.shape
-    out_h, out_w = h - 4, w - 4
-
+    
+    # Determine padding based on kernel size
+    if k_h == 5 and k_w == 5:
+        # Check if this is conv1 (with padding) or conv2 (no padding)
+        if h == 28 and w == 28:  # Conv1 with padding=2
+            # Add zero padding
+            input_padded = np.pad(input_vol, ((0, 0), (2, 2), (2, 2)), mode='constant', constant_values=0)
+            out_h, out_w = h, w  # Output same size due to padding
+        else:  # Conv2 with no padding
+            input_padded = input_vol
+            out_h, out_w = h - 4, w - 4
+    else:
+        input_padded = input_vol
+        out_h, out_w = h - k_h + 1, w - k_w + 1
+    
     output_vol = np.zeros((out_ch, out_h, out_w), dtype=np.int32)
 
     for f in range(out_ch):
@@ -123,144 +90,137 @@ def convolve_5x5_no_padding(input_vol, weights, biases, shift, tanh_lut, layer_n
         for r in range(out_h):
             for c in range(out_w):
                 acc = 0
+                # Sum over all input channels
                 for ch in range(in_ch):
-                    window = input_vol[ch, r:r+5, c:c+5]
+                    window = input_padded[ch, r:r+k_h, c:c+k_w]
                     w_kernel = weights[f, ch]
                     acc += np.sum(window * w_kernel)
-
+                
+                # Add Bias
                 acc += bias_val
-                acc = acc >> shift
-                acc = tanh_lut_apply(np.array([acc]), tanh_lut)[0]
+                
+                # FPGA Pipeline Steps:
+                acc = acc >> shift            # 1. Arithmetic Right Shift
+                
+                # Apply Tanh activation
+                if use_tanh:
+                    acc = apply_tanh_lut(np.clip(acc, -128, 127), tanh_lut)
+                
                 output_vol[f, r, c] = acc
-
+                
     return output_vol
 
-def fc_layer_with_tanh(input_vec, weights, biases, shift, tanh_lut, layer_name='fc'):
+def fc_layer(input_vec, weights, biases, shift, tanh_lut, use_tanh=True):
     """
-    Fully connected layer with tanh activation.
-    Input: (in_features,)
-    Weights: (out_features, in_features)
-    Output: (out_features,)
+    Fully Connected Layer.
+    Input: (N,) 1D vector
+    Weights: (Out, In)
+    Output: (Out,) 1D vector
     """
-    out_features = weights.shape[0]
-    output = np.zeros(out_features, dtype=np.int32)
-
-    for i in range(out_features):
-        acc = np.dot(input_vec.astype(np.int32), weights[i].astype(np.int32))
-        acc += biases[i]
+    output = np.zeros(weights.shape[0], dtype=np.int32)
+    
+    for i in range(weights.shape[0]):
+        acc = np.int32(biases[i])
+        acc += np.dot(input_vec.astype(np.int32), weights[i].astype(np.int32))
+        
+        # Shift
         acc = acc >> shift
-        output[i] = tanh_lut_apply(np.array([acc]), tanh_lut)[0]
-
+        
+        # Apply Tanh activation if specified
+        if use_tanh:
+            acc = apply_tanh_lut(np.clip(acc, -128, 127), tanh_lut)
+        
+        output[i] = acc
+    
     return output
 
-def fc_layer_no_activation(input_vec, weights, biases):
-    """
-    Final FC layer without activation.
-    Input: (in_features,)
-    Weights: (out_features, in_features)
-    Output: (out_features,) - raw logits
-    """
-    out_features = weights.shape[0]
-    scores = np.zeros(out_features, dtype=np.int32)
-
-    for i in range(out_features):
-        acc = np.dot(input_vec.astype(np.int32), weights[i].astype(np.int32))
-        scores[i] = acc + biases[i]
-
-    return scores
-
 # ==========================================
-# BIT-EXACT LENET-5 INFERENCE ENGINE
+# 3. BIT-EXACT INFERENCE ENGINE
 # ==========================================
-def simulate_lenet5_inference(image_bytes, weights_dict, tanh_lut):
-    """
-    LeNet-5 inference simulation matching FPGA implementation.
-    """
+def simulate_quantized_inference(image_bytes, weights_dict, tanh_lut):
     # Unpack weights
-    c1_w, c1_b = weights_dict['conv1']
-    c2_w, c2_b = weights_dict['conv2']
+    c1_w, c1_b = weights_dict['c1']
+    c2_w, c2_b = weights_dict['c2']
     fc1_w, fc1_b = weights_dict['fc1']
     fc2_w, fc2_b = weights_dict['fc2']
     fc3_w, fc3_b = weights_dict['fc3']
-
-    # Load Image: 28x28
+    
+    # 0. Load Image
     img = np.frombuffer(image_bytes, dtype=np.int8)
+    # Shape: (1, 28, 28) for consistent 3D processing
     img_3d = img.reshape(1, 28, 28).astype(np.int32)
-
-    # --- CONV1: 6 filters, 5x5, padding=2 ---
-    # Input: 1x28x28, Output: 6x28x28
+    
+    # --- LAYER 1: Conv1 6x5x5 with padding=2 ---
+    # Reshape weights: (6 filters, 1 channel, 5, 5)
     c1_w_reshaped = c1_w.reshape(6, 1, 5, 5).astype(np.int32)
-    x = convolve_5x5_with_padding(img_3d, c1_w_reshaped, c1_b, SHIFT_CONV1, tanh_lut, layer_name='conv1')
-
-    # --- POOL1: 2x2 Average Pool ---
-    # Input: 6x28x28, Output: 6x14x14
+    # Conv -> Tanh
+    x = convolve_layer(img_3d, c1_w_reshaped, c1_b, SHIFT_CONV1, tanh_lut, use_tanh=True)
+    # Pooling: 28x28 -> 14x14
     x = avg_pool_2x2(x)
 
-    # --- CONV2: 16 filters, 5x5, no padding ---
-    # Input: 6x14x14, Output: 16x10x10
+    # --- LAYER 2: Conv2 16x5x5 ---
+    # Reshape weights: (16 filters, 6 channels, 5, 5)
     c2_w_reshaped = c2_w.reshape(16, 6, 5, 5).astype(np.int32)
-    x = convolve_5x5_no_padding(x, c2_w_reshaped, c2_b, SHIFT_CONV2, tanh_lut, layer_name='conv2')
-
-    # --- POOL2: 2x2 Average Pool ---
-    # Input: 16x10x10, Output: 16x5x5
+    # Conv -> Tanh
+    x = convolve_layer(x, c2_w_reshaped, c2_b, SHIFT_CONV2, tanh_lut, use_tanh=True)
+    # Pooling: 10x10 -> 5x5
     x = avg_pool_2x2(x)
-
-    # --- FLATTEN ---
-    # 16x5x5 = 400 features
+    
+    # --- LAYER 3: FC1 400 -> 120 ---
+    # Flatten: (16, 5, 5) -> 400
     flattened = x.flatten().astype(np.int32)
-
-    # --- FC1: 400 -> 120 with tanh ---
+    
+    # Reshape FC1: (120, 400)
     fc1_w_reshaped = fc1_w.reshape(120, 400).astype(np.int32)
-    x = fc_layer_with_tanh(flattened, fc1_w_reshaped, fc1_b, SHIFT_FC1, tanh_lut, layer_name='fc1')
-
-    # --- FC2: 120 -> 84 with tanh ---
+    x = fc_layer(flattened, fc1_w_reshaped, fc1_b, SHIFT_FC1, tanh_lut, use_tanh=True)
+    
+    # --- LAYER 4: FC2 120 -> 84 ---
     fc2_w_reshaped = fc2_w.reshape(84, 120).astype(np.int32)
-    x = fc_layer_with_tanh(x, fc2_w_reshaped, fc2_b, SHIFT_FC2, tanh_lut, layer_name='fc2')
-
-    # --- FC3: 84 -> 10 (raw logits) ---
+    x = fc_layer(x, fc2_w_reshaped, fc2_b, SHIFT_FC2, tanh_lut, use_tanh=True)
+    
+    # --- LAYER 5: FC3 84 -> 10 ---
     fc3_w_reshaped = fc3_w.reshape(10, 84).astype(np.int32)
-    scores = fc_layer_no_activation(x, fc3_w_reshaped, fc3_b)
-
-    return np.argmax(scores), scores
+    scores = np.zeros(10, dtype=np.int32)
+    for c in range(10):
+        scores[c] = np.int32(fc3_b[c]) + np.dot(x.astype(np.int32), fc3_w_reshaped[c].astype(np.int32))
+        
+    return np.argmax(scores)
 
 # ==========================================
-# WEIGHT LOADERS
+# 4. UTILITIES (LOADERS)
 # ==========================================
 def load_all_weights():
     try:
-        # Conv1
+        # Load Conv Layers
         c1_w = np.fromfile(os.path.join(BIN_DIR, "conv1_weights.bin"), dtype=np.int8)
         c1_b = np.fromfile(os.path.join(BIN_DIR, "conv1_biases.bin"), dtype=np.int32)
-
-        # Conv2
+        
         c2_w = np.fromfile(os.path.join(BIN_DIR, "conv2_weights.bin"), dtype=np.int8)
         c2_b = np.fromfile(os.path.join(BIN_DIR, "conv2_biases.bin"), dtype=np.int32)
-
-        # FC1
+        
+        # Load FC Layers
         fc1_w = np.fromfile(os.path.join(BIN_DIR, "fc1_weights.bin"), dtype=np.int8)
         fc1_b = np.fromfile(os.path.join(BIN_DIR, "fc1_biases.bin"), dtype=np.int32)
-
-        # FC2
+        
         fc2_w = np.fromfile(os.path.join(BIN_DIR, "fc2_weights.bin"), dtype=np.int8)
         fc2_b = np.fromfile(os.path.join(BIN_DIR, "fc2_biases.bin"), dtype=np.int32)
-
-        # FC3
+        
         fc3_w = np.fromfile(os.path.join(BIN_DIR, "fc3_weights.bin"), dtype=np.int8)
         fc3_b = np.fromfile(os.path.join(BIN_DIR, "fc3_biases.bin"), dtype=np.int32)
-
+        
         mean = np.load(os.path.join(NPY_DIR, "norm_mean.npy"))
-        std = np.load(os.path.join(NPY_DIR, "norm_std.npy"))
-
+        std  = np.load(os.path.join(NPY_DIR, "norm_std.npy"))
+        
         return {
-            'conv1': (c1_w, c1_b),
-            'conv2': (c2_w, c2_b),
+            'c1': (c1_w, c1_b),
+            'c2': (c2_w, c2_b),
             'fc1': (fc1_w, fc1_b),
             'fc2': (fc2_w, fc2_b),
             'fc3': (fc3_w, fc3_b)
         }, (mean, std)
-
+        
     except FileNotFoundError as e:
-        sys.exit(f"Error: Missing binary file. {e}\nDid you run train_lenet.py?")
+        sys.exit(f"Error: Missing binary file. {e}\nDid you run the training script (train_lenet.py)?")
 
 def preprocess(image_tensor, mean, std):
     x = image_tensor.numpy().squeeze()
@@ -273,7 +233,7 @@ def get_data():
     logging.getLogger("torchvision").setLevel(logging.CRITICAL)
     transform = transforms.Compose([transforms.ToTensor()])
     data_root = os.path.join(SCRIPT_DIR, "..", "..", "data")
-
+    
     old_stdout = sys.stdout
     sys.stdout = open(os.devnull, 'w')
     try:
@@ -283,32 +243,67 @@ def get_data():
     return dataset
 
 # ==========================================
-# MAIN LOOP
+# 5. MAIN LOOP
 # ==========================================
 def main():
-    print("LeNet-5 Python Inference Simulation")
-    print("=" * 40)
+    print("="*60)
+    print("QUANTIZED LENET-5 INFERENCE (Fixed Scale Propagation)")
+    print("="*60)
 
+    print(f"\nSHIFT values:")
+    print(f"  SHIFT_CONV1 = {SHIFT_CONV1}")
+    print(f"  SHIFT_CONV2 = {SHIFT_CONV2}")
+    print(f"  SHIFT_FC1 = {SHIFT_FC1}")
+    print(f"  SHIFT_FC2 = {SHIFT_FC2}")
+
+    print("\nScale chain:")
+    print(f"  Input: {INPUT_SCALE}")
+    print(f"  After pool: {POST_POOL_SCALE} (127/4)")
+
+    print("\nLoading weights...")
     weights, (norm_mean, norm_std) = load_all_weights()
+
+    # Load Tanh LUT (same file FPGA uses)
+    print("Loading Tanh LUT...")
     tanh_lut = load_tanh_lut()
+
     dataset = get_data()
 
-    total_images = 1000
+    # IMPORTANT: Skip first 500 images (used for calibration)
+    # Test on remaining 9500 images for unbiased evaluation
+    CALIBRATION_SAMPLES = 500
+    total_images = 1000  # Test on 1000 images (indices 500-1499)
     correct = 0
 
+    print(f"\nRunning inference on {total_images} images (indices {CALIBRATION_SAMPLES}-{CALIBRATION_SAMPLES + total_images - 1})...")
+    print(f"(Skipping first {CALIBRATION_SAMPLES} images used for calibration)")
+
     for i in range(total_images):
-        img_tensor, label = dataset[i]
+        # Offset by calibration samples to avoid data leakage
+        img_tensor, label = dataset[CALIBRATION_SAMPLES + i]
         img_bytes = preprocess(img_tensor, norm_mean, norm_std)
-        prediction, _ = simulate_lenet5_inference(img_bytes, weights, tanh_lut)
+
+        prediction = simulate_quantized_inference(img_bytes, weights, tanh_lut)
 
         if prediction == label:
             correct += 1
 
         if (i+1) % 100 == 0:
-            print(f"Processed {i+1} images... (Accuracy: {100*correct/(i+1):.2f}%)")
+            current_acc = (correct / (i+1)) * 100
+            print(f"Processed {i+1} images... Current accuracy: {current_acc:.2f}%")
 
     accuracy = (correct / total_images) * 100
-    print(f"\nFinal Accuracy: {accuracy:.2f}% ({correct}/{total_images})")
+    print(f"\n{'='*60}")
+    print(f"FINAL ACCURACY: {accuracy:.2f}% ({correct}/{total_images})")
+    print(f"{'='*60}")
+
+    # Compare with expected
+    if accuracy < 95:
+        print("\nWARNING: Accuracy below 95%. Check quantization parameters.")
+    elif accuracy < 97:
+        print("\nINFO: Accuracy between 95-97%. Some room for improvement.")
+    else:
+        print("\nSUCCESS: Accuracy >= 97%. Quantization is working well!")
 
 if __name__ == "__main__":
     main()

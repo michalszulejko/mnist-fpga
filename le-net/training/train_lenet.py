@@ -4,22 +4,33 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 import numpy as np
 import os
+import random
 
 # --- Configuration ---
+# Deterministic behavior
+SEED = 42
+torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+np.random.seed(SEED)
+random.seed(SEED)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
 BATCH_SIZE = 64
 EPOCHS = 10          # More epochs for LeNet-5
 LR = 0.001
 INPUT_SCALE = 127.0  # Scaling factor; inputs clipped to [-128, 127] (full int8 range)
 
-# Per-layer SHIFT values (from profiling analysis)
-SHIFT_CONV1 = 9  
-SHIFT_CONV2 = 9  
-SHIFT_FC1 = 9    
-SHIFT_FC2 = 9    
+# CRITICAL FIX: Scale after average pooling (sum of 4 values // 4)
+# After tanh: scale = 127.0
+# After avg_pool: scale = 127.0 / 4 = 31.75
+POST_POOL_SCALE = 127.0 / 4.0  # = 31.75
 
-# Legacy constants
-SHIFT_CONV = 8
-SHIFT_FC = 8
+# Per-layer SHIFT values (calibrated)
+SHIFT_CONV1 = 10  # Input scale = 127.0
+SHIFT_CONV2 = 8   # Input scale = 31.75 (post-pool)
+SHIFT_FC1 = 9     # Input scale = 31.75 (post-pool)
+SHIFT_FC2 = 10    # Input scale = 127.0 (post-tanh)
 
 # --- 1. Define LeNet-5 Model ---
 class LeNet5(nn.Module):
@@ -79,7 +90,10 @@ def train():
     ])
 
     train_data = datasets.MNIST('../data', train=True, download=True, transform=transform)
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
+    # Use generator for deterministic shuffling
+    g = torch.Generator()
+    g.manual_seed(SEED)
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True, generator=g)
 
     test_data = datasets.MNIST('../data', train=False, download=True, transform=transform)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=1000, shuffle=False)
@@ -168,7 +182,7 @@ def generate_tanh_lut(output_dir):
 
 # --- 5. Export Quantized Weights ---
 def export_weights(model):
-    print("\n--- Starting LeNet-5 Weight Export ---")
+    print("\n--- Starting LeNet-5 Weight Export (Fixed Scale Propagation) ---")
 
     # Setup Directories
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -181,6 +195,8 @@ def export_weights(model):
     }
     for d in dirs.values():
         os.makedirs(d, exist_ok=True)
+
+    print(f"Using SHIFT values: {SHIFT_CONV1}/{SHIFT_CONV2}/{SHIFT_FC1}/{SHIFT_FC2}")
 
     # Save Normalization Params
     np.save(os.path.join(dirs["npy"], "norm_mean.npy"), np.array([0.1307]))
@@ -205,49 +221,103 @@ def export_weights(model):
     fc3_w = model.fc3.weight.data.cpu().numpy()   # (10, 84)
     fc3_b = model.fc3.bias.data.cpu().numpy()     # (10,)
 
-    print("Quantizing Conv1...")
-    # Conv1 Quantization with per-layer SHIFT
+    # =========================================================================
+    # QUANTIZATION WITH CORRECT SCALE PROPAGATION
+    # =========================================================================
+    # Key insight: After avg_pool (sum/4), the scale is reduced by 4!
+    #
+    # Scale chain:
+    # Input: 127.0
+    # After Conv1+Tanh: 127.0 (tanh LUT outputs [-127,127])
+    # After Pool1: 127.0/4 = 31.75 (avg divides by 4!)
+    # After Conv2+Tanh: 127.0
+    # After Pool2: 127.0/4 = 31.75
+    # After FC1+Tanh: 127.0
+    # After FC2+Tanh: 127.0
+    # =========================================================================
+
+    print("\n=== Scale Propagation Chain ===")
+    print(f"Input scale: {INPUT_SCALE}")
+    print(f"Post-pool scale: {POST_POOL_SCALE} (127/4)")
+
+    # --- CONV1 ---
+    # Input scale: 127.0 (from normalized image)
+    print("\nQuantizing Conv1...")
     w_scale_c1 = 127.0 / np.max(np.abs(c1_w))
     c1_w_int8 = np.clip(np.round(c1_w * w_scale_c1), -128, 127).astype(np.int8)
-    # Bias scale accounts for SHIFT: bias is pre-shift, so must be scaled proportionally
-    b_scale_c1 = INPUT_SCALE * w_scale_c1  # Normalize to base SHIFT=8
-    c1_b_int32 = np.round(c1_b * b_scale_c1).astype(np.int32)
-    # Output scale after tanh is normalized to ~127
-    scale_out_c1 = 127.0  # Tanh output is mapped to [-127, 127]
 
-    print("Quantizing Conv2...")
-    # Conv2 Quantization with per-layer SHIFT
+    # Bias scale = input_scale * weight_scale
+    b_scale_c1 = INPUT_SCALE * w_scale_c1
+    c1_b_int32 = np.round(c1_b * b_scale_c1).astype(np.int32)
+
+    print(f"  Input scale: {INPUT_SCALE}")
+    print(f"  Weight scale: {w_scale_c1:.2f}")
+    print(f"  Bias scale: {b_scale_c1:.2f}")
+
+    # After tanh: output scale = 127.0
+    # After pool1: output scale = 127.0 / 4 = 31.75
+
+    # --- CONV2 ---
+    # Input scale: 31.75 (after pool1 divides by 4!)
+    print("\nQuantizing Conv2...")
     w_scale_c2 = 127.0 / np.max(np.abs(c2_w))
     c2_w_int8 = np.clip(np.round(c2_w * w_scale_c2), -128, 127).astype(np.int8)
-    # Bias scale accounts for SHIFT_CONV2
-    b_scale_c2 = scale_out_c1 * w_scale_c2
-    c2_b_int32 = np.round(c2_b * b_scale_c2).astype(np.int32)
-    scale_out_c2 = 127.0  # Tanh output
 
-    print("Quantizing FC1...")
-    # FC1 Quantization with per-layer SHIFT
+    # CRITICAL FIX: Use POST_POOL_SCALE (31.75) not 127!
+    b_scale_c2 = POST_POOL_SCALE * w_scale_c2
+    c2_b_int32 = np.round(c2_b * b_scale_c2).astype(np.int32)
+
+    print(f"  Input scale: {POST_POOL_SCALE} (after pool1)")
+    print(f"  Weight scale: {w_scale_c2:.2f}")
+    print(f"  Bias scale: {b_scale_c2:.2f}")
+
+    # After tanh: output scale = 127.0
+    # After pool2: output scale = 127.0 / 4 = 31.75
+
+    # --- FC1 ---
+    # Input scale: 31.75 (after pool2 divides by 4!)
+    print("\nQuantizing FC1...")
     w_scale_fc1 = 127.0 / np.max(np.abs(fc1_w))
     fc1_w_int8 = np.clip(np.round(fc1_w * w_scale_fc1), -128, 127).astype(np.int8)
-    # Bias scale accounts for SHIFT_FC1
-    b_scale_fc1 = scale_out_c2 * w_scale_fc1
-    fc1_b_int32 = np.round(fc1_b * b_scale_fc1).astype(np.int32)
-    scale_out_fc1 = 127.0  # Tanh output
 
-    print("Quantizing FC2...")
-    # FC2 Quantization with per-layer SHIFT
+    # CRITICAL FIX: Use POST_POOL_SCALE (31.75) not 127!
+    b_scale_fc1 = POST_POOL_SCALE * w_scale_fc1
+    fc1_b_int32 = np.round(fc1_b * b_scale_fc1).astype(np.int32)
+
+    print(f"  Input scale: {POST_POOL_SCALE} (after pool2)")
+    print(f"  Weight scale: {w_scale_fc1:.2f}")
+    print(f"  Bias scale: {b_scale_fc1:.2f}")
+
+    # After tanh: output scale = 127.0
+
+    # --- FC2 ---
+    # Input scale: 127.0 (after tanh, no pooling)
+    print("\nQuantizing FC2...")
     w_scale_fc2 = 127.0 / np.max(np.abs(fc2_w))
     fc2_w_int8 = np.clip(np.round(fc2_w * w_scale_fc2), -128, 127).astype(np.int8)
-    # Bias scale accounts for SHIFT_FC2
-    b_scale_fc2 = scale_out_fc1 * w_scale_fc2
-    fc2_b_int32 = np.round(fc2_b * b_scale_fc2).astype(np.int32)
-    scale_out_fc2 = 127.0  # Tanh output
 
-    print("Quantizing FC3...")
-    # FC3 Quantization (final layer, no activation, no SHIFT)
+    # Input is directly from tanh, scale = 127.0
+    b_scale_fc2 = 127.0 * w_scale_fc2
+    fc2_b_int32 = np.round(fc2_b * b_scale_fc2).astype(np.int32)
+
+    print(f"  Input scale: 127.0 (after tanh)")
+    print(f"  Weight scale: {w_scale_fc2:.2f}")
+    print(f"  Bias scale: {b_scale_fc2:.2f}")
+
+    # After tanh: output scale = 127.0
+
+    # --- FC3 ---
+    # Input scale: 127.0 (after tanh, no pooling)
+    print("\nQuantizing FC3 (output layer)...")
     w_scale_fc3 = 127.0 / np.max(np.abs(fc3_w))
     fc3_w_int8 = np.clip(np.round(fc3_w * w_scale_fc3), -128, 127).astype(np.int8)
-    b_scale_fc3 = scale_out_fc2 * w_scale_fc3
+
+    b_scale_fc3 = 127.0 * w_scale_fc3
     fc3_b_int32 = np.round(fc3_b * b_scale_fc3).astype(np.int32)
+
+    print(f"  Input scale: 127.0 (after tanh)")
+    print(f"  Weight scale: {w_scale_fc3:.2f}")
+    print(f"  Bias scale: {b_scale_fc3:.2f}")
 
     # --- SAVE FILES ---
     layers = [
