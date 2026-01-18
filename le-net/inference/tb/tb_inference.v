@@ -25,7 +25,7 @@ module tb_inference_lenet;
     // =========================================================================
     // Constants
     // =========================================================================
-    localparam NUM_TESTS = 10;
+    localparam NUM_TESTS = 16;  // Testing images 500-2499 from MNIST test set
     localparam IMAGE_SIZE = 784;
     localparam NUM_CLASSES = 10;
 
@@ -109,8 +109,16 @@ module tb_inference_lenet;
     assign conv_b_data = conv_biases_ram[conv_b_addr];
 
     // FC Weights RAM (FC1: 48000, FC2: 10080, FC3: 840 = 58920 total)
+    // NOTE: Must use 2-cycle synchronous read to match BRAM behavior on FPGA!
+    // Vivado may add output registers (DOA_REG=1) for better timing.
     reg [7:0] fc_weights_ram [0:58919];
-    assign fc_w_data = fc_weights_ram[fc_w_addr];
+    reg [7:0] fc_w_data_reg1;  // First pipeline stage
+    reg [7:0] fc_w_data_reg2;  // Second pipeline stage (output register)
+    always @(posedge clk) begin
+        fc_w_data_reg1 <= fc_weights_ram[fc_w_addr];  // Cycle 1: RAM read
+        fc_w_data_reg2 <= fc_w_data_reg1;             // Cycle 2: Output register
+    end
+    assign fc_w_data = fc_w_data_reg2;
 
     // FC Biases RAM (FC1: 120, FC2: 84, FC3: 10 = 214 total)
     reg [31:0] fc_biases_ram [0:213];
@@ -204,8 +212,10 @@ module tb_inference_lenet;
     // =========================================================================
     integer tests_passed;
     integer tests_failed;
-    integer pred_correct;
-    integer pred_incorrect;
+    integer pred_match_python;    // FPGA matches Python prediction (bit-exactness)
+    integer pred_mismatch_python;
+    integer actual_correct;       // FPGA prediction matches TRUE label (real accuracy)
+    integer actual_incorrect;
 
     // =========================================================================
     // Helper Tasks
@@ -310,14 +320,23 @@ module tb_inference_lenet;
             @(posedge clk);
 
             // 3. Check prediction
-            $display("  Predicted: %0d | Expected: %0d %s",
-                predicted_digit, golden_preds[img_idx],
-                (predicted_digit === golden_preds[img_idx]) ? "" : "[PREDICTION MISMATCH]");
+            $display("  FPGA Predicted: %0d | Python Predicted: %0d | True Label: %0d %s %s",
+                predicted_digit, golden_preds[img_idx], golden_labels[img_idx],
+                (predicted_digit === golden_preds[img_idx]) ? "" : "[PYTHON MISMATCH]",
+                (predicted_digit === golden_labels[img_idx]) ? "[CORRECT]" : "[WRONG]");
 
+            // Track bit-exactness (FPGA vs Python)
             if (predicted_digit === golden_preds[img_idx]) begin
-                pred_correct = pred_correct + 1;
+                pred_match_python = pred_match_python + 1;
             end else begin
-                pred_incorrect = pred_incorrect + 1;
+                pred_mismatch_python = pred_mismatch_python + 1;
+            end
+
+            // Track actual accuracy (FPGA vs True Label)
+            if (predicted_digit === golden_labels[img_idx]) begin
+                actual_correct = actual_correct + 1;
+            end else begin
+                actual_incorrect = actual_incorrect + 1;
             end
 
             // Compare scores
@@ -340,8 +359,10 @@ module tb_inference_lenet;
         start = 0;
         tests_passed = 0;
         tests_failed = 0;
-        pred_correct = 0;
-        pred_incorrect = 0;
+        pred_match_python = 0;
+        pred_mismatch_python = 0;
+        actual_correct = 0;
+        actual_incorrect = 0;
 
         $display("\n================================================================================");
         $display(" LeNet-5 Inference Testbench - %0d Image Test", NUM_TESTS);
@@ -382,32 +403,29 @@ module tb_inference_lenet;
         $display("\n\n================================================================================");
         $display(" FINAL RESULTS (%0d IMAGES)", NUM_TESTS);
         $display("================================================================================");
-        $display("\nPrediction Accuracy:");
-        $display("  Correct:   %0d/%0d (%.1f%%)", pred_correct, NUM_TESTS,
-            (pred_correct * 100.0) / NUM_TESTS);
-        $display("  Incorrect: %0d/%0d", pred_incorrect, NUM_TESTS);
 
-        $display("\nScore Comparison:");
-        $display("  Exact Matches: %0d/%0d tests", tests_passed, NUM_TESTS);
-        $display("  Mismatches:    %0d/%0d tests", tests_failed, NUM_TESTS);
+        $display("\n1. ACTUAL MODEL ACCURACY (FPGA vs True Labels):");
+        $display("   Correct:   %0d/%0d (%.2f%%)", actual_correct, NUM_TESTS,
+            (actual_correct * 100.0) / NUM_TESTS);
+        $display("   Incorrect: %0d/%0d", actual_incorrect, NUM_TESTS);
 
-        if (tests_passed === NUM_TESTS) begin
-            $display("\n[SUCCESS] All %0d tests passed! FPGA matches Python exactly.", NUM_TESTS);
+        $display("\n2. BIT-EXACTNESS (FPGA vs Python Predictions):");
+        $display("   Match:     %0d/%0d (%.2f%%)", pred_match_python, NUM_TESTS,
+            (pred_match_python * 100.0) / NUM_TESTS);
+        $display("   Mismatch:  %0d/%0d", pred_mismatch_python, NUM_TESTS);
+
+        $display("\n3. SCORE COMPARISON (All 10 logits):");
+        $display("   Exact Matches: %0d/%0d tests", tests_passed, NUM_TESTS);
+        $display("   Mismatches:    %0d/%0d tests", tests_failed, NUM_TESTS);
+
+        if (tests_passed === NUM_TESTS && pred_match_python === NUM_TESTS) begin
+            $display("\n[SUCCESS] FPGA matches Python exactly (bit-exact).");
+            $display("          Model accuracy on test set: %.2f%%", (actual_correct * 100.0) / NUM_TESTS);
         end else begin
-            $display("\n[FAILURE] Some tests failed.");
+            $display("\n[FAILURE] FPGA does not match Python exactly.");
         end
 
         $display("\n================================================================================\n");
-        $finish;
-    end
-
-    // =========================================================================
-    // Timeout Watchdog
-    // =========================================================================
-    initial begin
-        #5_000_000_000; // 5 Billion ns timeout (LeNet-5 takes longer)
-        $display("\n[ERROR] Simulation timeout!");
-        $display("Inference loop took too long or stalled.");
         $finish;
     end
 

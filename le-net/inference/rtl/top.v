@@ -80,6 +80,16 @@ module top (
     wire [7:0]  tanh_wr_addr;
     wire [7:0]  tanh_wr_data;
     wire        tanh_wr_en;
+
+    // Debug reader signals
+    wire [7:0]  dbg_tanh_addr;
+    wire [7:0]  dbg_tanh_data;
+    wire [11:0] dbg_conv_addr;
+    wire [7:0]  dbg_conv_data;
+    wire [9:0]  dbg_img_addr;
+    wire [7:0]  dbg_img_data;
+    wire [7:0]  dbg_tx_data;
+    wire        dbg_tx_send;
     
     // Image RAM Signals
     wire [9:0]  img_wr_addr;
@@ -189,7 +199,9 @@ module top (
         .wr_data(conv_w_wr_data),
         .wr_en(conv_w_wr_en),
         .rd_addr(conv_w_rd_addr),
-        .rd_data(conv_w_rd_data)
+        .rd_data(conv_w_rd_data),
+        .dbg_addr(dbg_conv_addr),
+        .dbg_data(dbg_conv_data)
     );
 
     conv_biases_ram u_conv_b_ram (
@@ -220,6 +232,8 @@ module top (
         .clk(clk),
         .addr(tanh_addr),
         .data(tanh_rd_data),
+        .dbg_addr(dbg_tanh_addr),
+        .dbg_data(dbg_tanh_data),
         .wr_addr(tanh_wr_addr),
         .wr_data(tanh_wr_data),
         .wr_en(tanh_wr_en)
@@ -284,7 +298,9 @@ module top (
         .wr_data(img_wr_data),
         .wr_en(img_wr_en),
         .rd_addr(img_rd_addr),
-        .rd_data(img_rd_data)
+        .rd_data(img_rd_data),
+        .dbg_addr(dbg_img_addr),
+        .dbg_data(dbg_img_data)
     );
 
     // =========================================================================
@@ -400,8 +416,19 @@ module top (
         .tx_data(scores_tx_data), .tx_send(scores_tx_send), .tx_busy(tx_busy)
     );
 
-    assign tx_data = digit_tx_send ? digit_tx_data : scores_tx_data;
-    assign tx_send = digit_tx_send | scores_tx_send;
+    debug_reader u_debug_reader (
+        .clk(clk), .rst(rst),
+        .rx_data(cmd_rx_data), .rx_ready(cmd_rx_ready),
+        .tanh_dbg_addr(dbg_tanh_addr), .tanh_dbg_data(dbg_tanh_data),
+        .conv_dbg_addr(dbg_conv_addr), .conv_dbg_data(dbg_conv_data),
+        .img_dbg_addr(dbg_img_addr), .img_dbg_data(dbg_img_data),
+        .tx_data(dbg_tx_data), .tx_send(dbg_tx_send), .tx_busy(tx_busy)
+    );
+
+    // TX Mux: Priority to digit, then scores, then debug
+    assign tx_data = digit_tx_send ? digit_tx_data :
+                     scores_tx_send ? scores_tx_data : dbg_tx_data;
+    assign tx_send = digit_tx_send | scores_tx_send | dbg_tx_send;
 
     digit_display_reader u_disp_reader (
         .clk(clk), .rst(rst),

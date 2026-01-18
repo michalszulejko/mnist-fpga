@@ -10,7 +10,10 @@ module image_ram (
     input wire [7:0] wr_data,
     input wire wr_en,
     input wire [9:0] rd_addr,
-    output wire [7:0] rd_data // Changed to wire
+    output wire [7:0] rd_data,
+    // Debug read port
+    input wire [9:0] dbg_addr,
+    output wire [7:0] dbg_data
 );
 
     (* ram_style = "distributed" *) reg [7:0] ram [0:783];
@@ -24,6 +27,9 @@ module image_ram (
     
     // Asynchronous read
     assign rd_data = ram[rd_addr];
+    
+    // Debug read (asynchronous)
+    assign dbg_data = ram[dbg_addr];
 
 endmodule
 

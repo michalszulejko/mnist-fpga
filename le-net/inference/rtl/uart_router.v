@@ -46,6 +46,7 @@ module uart_router (
         if (rst) begin
             state <= IDLE;
             byte_count <= 0;
+            prev_byte <= 0;
             weight_rx_ready <= 0;
             image_rx_ready <= 0;
             cmd_rx_ready <= 0;
@@ -58,7 +59,9 @@ module uart_router (
                 IDLE: if (rx_ready) begin
                     if (rx_data == WEIGHT_START1 && !weights_loaded) state <= WAIT_W2;
                     else if (rx_data == IMAGE_START1 && weights_loaded) state <= WAIT_I2;
-                    else if ((rx_data == 8'hCC || rx_data == 8'hCD) && weights_loaded) begin
+                    // Command forwarding: 0xCC (digit), 0xCD (scores), 0xD0/0xD1/0xD2 (debug)
+                    else if ((rx_data == 8'hCC || rx_data == 8'hCD || 
+                              rx_data == 8'hD0 || rx_data == 8'hD1 || rx_data == 8'hD2) && weights_loaded) begin
                         cmd_rx_data <= rx_data;
                         cmd_rx_ready <= 1;
                     end

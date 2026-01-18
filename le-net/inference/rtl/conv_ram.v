@@ -17,7 +17,10 @@ module conv_weights_ram (
     input wire [7:0] wr_data,
     input wire wr_en,
     input wire [11:0] rd_addr,
-    output wire [7:0] rd_data
+    output wire [7:0] rd_data,
+    // Debug read port
+    input wire [11:0] dbg_addr,
+    output wire [7:0] dbg_data
 );
     // Force Distributed RAM for Combinational Read
     (* ram_style = "distributed" *) reg [7:0] ram [0:2549];
@@ -31,6 +34,9 @@ module conv_weights_ram (
 
     // Asynchronous read
     assign rd_data = ram[rd_addr];
+
+    // Debug read port (asynchronous)
+    assign dbg_data = ram[dbg_addr];
 endmodule
 
 // Combined Conv Biases RAM (L1 + L2)

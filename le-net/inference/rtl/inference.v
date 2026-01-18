@@ -131,7 +131,10 @@ module inference (
     localparam FC1_LOAD_BIAS        = 6'd17;
     localparam FC1_LOAD_BIAS_WAIT   = 6'd18;
     localparam FC1_PREFETCH         = 6'd19;
+    localparam FC1_PREFETCH2        = 6'd41;  // Extra wait for 2-cycle BRAM latency
     localparam FC1_MULT             = 6'd20;
+    localparam FC1_MULT_WAIT        = 6'd35;  // Wait cycle 1 for BRAM data
+    localparam FC1_MULT_WAIT2       = 6'd38;  // Wait cycle 2 for BRAM data (if 2-cycle latency)
     localparam FC1_TANH             = 6'd21;
     localparam FC1_SAVE             = 6'd22;
 
@@ -139,7 +142,10 @@ module inference (
     localparam FC2_LOAD_BIAS        = 6'd23;
     localparam FC2_LOAD_BIAS_WAIT   = 6'd24;
     localparam FC2_PREFETCH         = 6'd25;
+    localparam FC2_PREFETCH2        = 6'd42;  // Extra wait for 2-cycle BRAM latency
     localparam FC2_MULT             = 6'd26;
+    localparam FC2_MULT_WAIT        = 6'd36;  // Wait cycle 1 for BRAM data
+    localparam FC2_MULT_WAIT2       = 6'd39;  // Wait cycle 2 for BRAM data (if 2-cycle latency)
     localparam FC2_TANH             = 6'd27;
     localparam FC2_SAVE             = 6'd28;
 
@@ -147,7 +153,10 @@ module inference (
     localparam FC3_LOAD_BIAS        = 6'd29;
     localparam FC3_LOAD_BIAS_WAIT   = 6'd30;
     localparam FC3_PREFETCH         = 6'd31;
+    localparam FC3_PREFETCH2        = 6'd43;  // Extra wait for 2-cycle BRAM latency
     localparam FC3_MULT             = 6'd32;
+    localparam FC3_MULT_WAIT        = 6'd37;  // Wait cycle 1 for BRAM data
+    localparam FC3_MULT_WAIT2       = 6'd40;  // Wait cycle 2 for BRAM data (if 2-cycle latency)
     localparam FC3_NEXT             = 6'd33;
 
     localparam DONE_STATE           = 6'd34;
@@ -280,15 +289,15 @@ module inference (
                 end
 
                 L1_TANH: begin
-                    // Shift and prepare for tanh LUT (SHIFT=9 to match training)
-                    temp_val <= acc >>> 9;
+                    // Shift and prepare for tanh LUT (SHIFT=10, input scale=127.0)
+                    temp_val <= acc >>> 10;
                     // Set tanh address here to allow one cycle for LUT read
-                    if ((acc >>> 9) < -128)
+                    if ((acc >>> 10) < -128)
                         tanh_addr <= 8'd0;  // Index for -128
-                    else if ((acc >>> 9) > 127)
+                    else if ((acc >>> 10) > 127)
                         tanh_addr <= 8'd255; // Index for 127
                     else
-                        tanh_addr <= (acc >>> 9) + 8'd128; // Offset to 0-255
+                        tanh_addr <= (acc >>> 10) + 8'd128; // Offset to 0-255
                     state <= L1_SAVE;
                 end
 
@@ -436,14 +445,15 @@ module inference (
                 end
 
                 L2_TANH: begin
-                    temp_val <= acc >>> 9;
+                    // SHIFT=8, input scale=31.75 (post-pool, 127/4)
+                    temp_val <= acc >>> 8;
                     // Set tanh address here to allow one cycle for LUT read
-                    if ((acc >>> 9) < -128)
+                    if ((acc >>> 8) < -128)
                         tanh_addr <= 8'd0;
-                    else if ((acc >>> 9) > 127)
+                    else if ((acc >>> 8) > 127)
                         tanh_addr <= 8'd255;
                     else
-                        tanh_addr <= (acc >>> 9) + 8'd128;
+                        tanh_addr <= (acc >>> 8) + 8'd128;
                     state <= L2_SAVE;
                 end
 
@@ -553,6 +563,12 @@ module inference (
                 end
 
                 FC1_PREFETCH: begin
+                    // Wait cycle 1 for first BRAM data
+                    state <= FC1_PREFETCH2;
+                end
+
+                FC1_PREFETCH2: begin
+                    // Wait cycle 2 for first BRAM data (2-cycle latency)
                     state <= FC1_MULT;
                 end
 
@@ -565,10 +581,22 @@ module inference (
                         flat_idx <= flat_idx + 1;
                         buf_c_addr <= flat_idx + 1;
                         fc_w_addr <= neuron_idx * 400 + (flat_idx + 1);
+                        state <= FC1_MULT_WAIT;  // Wait for BRAM latency
                     end
                 end
 
+                FC1_MULT_WAIT: begin
+                    // Wait cycle 1 for BRAM data
+                    state <= FC1_MULT_WAIT2;
+                end
+
+                FC1_MULT_WAIT2: begin
+                    // Wait cycle 2 for BRAM data (2-cycle BRAM latency)
+                    state <= FC1_MULT;
+                end
+
                 FC1_TANH: begin
+                    // SHIFT=9, input scale=31.75 (post-pool)
                     temp_val <= acc >>> 9;
                     // Set tanh address here to allow one cycle for LUT read
                     if ((acc >>> 9) < -128)
@@ -614,6 +642,12 @@ module inference (
                 end
 
                 FC2_PREFETCH: begin
+                    // Wait cycle 1 for first BRAM data
+                    state <= FC2_PREFETCH2;
+                end
+
+                FC2_PREFETCH2: begin
+                    // Wait cycle 2 for first BRAM data (2-cycle latency)
                     state <= FC2_MULT;
                 end
 
@@ -626,18 +660,30 @@ module inference (
                         flat_idx <= flat_idx + 1;
                         buf_b_addr <= flat_idx + 1;
                         fc_w_addr <= 48000 + neuron_idx * 120 + (flat_idx + 1);
+                        state <= FC2_MULT_WAIT;  // Wait for BRAM latency
                     end
                 end
 
+                FC2_MULT_WAIT: begin
+                    // Wait cycle 1 for BRAM data
+                    state <= FC2_MULT_WAIT2;
+                end
+
+                FC2_MULT_WAIT2: begin
+                    // Wait cycle 2 for BRAM data (2-cycle BRAM latency)
+                    state <= FC2_MULT;
+                end
+
                 FC2_TANH: begin
-                    temp_val <= acc >>> 9;
+                    // SHIFT=10, input scale=127.0 (post-tanh)
+                    temp_val <= acc >>> 10;
                     // Set tanh address here to allow one cycle for LUT read
-                    if ((acc >>> 9) < -128)
+                    if ((acc >>> 10) < -128)
                         tanh_addr <= 8'd0;
-                    else if ((acc >>> 9) > 127)
+                    else if ((acc >>> 10) > 127)
                         tanh_addr <= 8'd255;
                     else
-                        tanh_addr <= (acc >>> 9) + 8'd128;
+                        tanh_addr <= (acc >>> 10) + 8'd128;
                     state <= FC2_SAVE;
                 end
 
@@ -676,6 +722,12 @@ module inference (
                 end
 
                 FC3_PREFETCH: begin
+                    // Wait cycle 1 for first BRAM data
+                    state <= FC3_PREFETCH2;
+                end
+
+                FC3_PREFETCH2: begin
+                    // Wait cycle 2 for first BRAM data (2-cycle latency)
                     state <= FC3_MULT;
                 end
 
@@ -688,7 +740,18 @@ module inference (
                         flat_idx <= flat_idx + 1;
                         buf_c_addr <= flat_idx + 1;
                         fc_w_addr <= 48000 + 10080 + class_idx * 84 + (flat_idx + 1);
+                        state <= FC3_MULT_WAIT;  // Wait for BRAM latency
                     end
+                end
+
+                FC3_MULT_WAIT: begin
+                    // Wait cycle 1 for BRAM data
+                    state <= FC3_MULT_WAIT2;
+                end
+
+                FC3_MULT_WAIT2: begin
+                    // Wait cycle 2 for BRAM data (2-cycle BRAM latency)
+                    state <= FC3_MULT;
                 end
 
                 FC3_NEXT: begin

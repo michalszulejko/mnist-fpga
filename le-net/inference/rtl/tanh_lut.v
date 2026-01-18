@@ -11,9 +11,13 @@ Output: 8-bit signed value (-127 to 127, representing tanh output)
 module tanh_lut (
     input wire clk,
 
-    // Read interface
+    // Read interface (for inference)
     input wire [7:0] addr,
     output wire signed [7:0] data,
+
+    // Debug read interface (for UART readback)
+    input wire [7:0] dbg_addr,
+    output wire [7:0] dbg_data,
 
     // Write interface (for initialization via UART)
     input wire [7:0] wr_addr,
@@ -39,5 +43,8 @@ module tanh_lut (
 
     // Asynchronous read for 0-cycle latency
     assign data = lut[addr];
+
+    // Debug read port (asynchronous)
+    assign dbg_data = lut[dbg_addr];
 
 endmodule

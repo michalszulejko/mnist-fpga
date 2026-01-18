@@ -74,6 +74,7 @@ module image_loader (
                         // Auto-reset logic for next image
                         state <= STATE_RECEIVING;
                         byte_count <= 0;
+                        prev_byte <= 0;  // Reset prev_byte for next image
                         debug_rx_count <= 0;
                     end
                 endcase
