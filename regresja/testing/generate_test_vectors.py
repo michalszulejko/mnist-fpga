@@ -27,7 +27,7 @@ from simulate_fpga_inference import (
 
 # Configuration
 NUM_TEST_VECTORS = 100
-OUTPUT_DIR = "../inference/tb"
+OUTPUT_DIR = "../outputs/mem"
 
 def generate_test_vectors():
     """Generate test vectors for Verilog testbench."""
