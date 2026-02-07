@@ -3,6 +3,7 @@
 \usecolortheme{default}
 
 \setbeamertemplate{footline}[frame number]
+\setbeamertemplate{navigation symbols}{}
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -11,17 +12,27 @@
 \usepackage{tikz}
 \usetikzlibrary{positioning, arrows, shapes.geometric}
 \usepackage{float}
+\usepackage{graphicx}
 
 \title{Sprzętowa implementacja sieci neuronowej CNN w układzie FPGA do rozpoznawania cyfr pisanych odręcznie}
 \author{Michał Szulejko}
-\institute{Promotor: Dr. Inż. Robert Strąkowski}
+\institute{Promotor: Dr Inż. Robert Strąkowski}
+\date{}
 
 \begin{document}
 
 % Title Slide
 \frame{\titlepage}
 
-% ============ Slide 2: LeNet-5 - Historia i Architektura ============
+% ============ Slide 2: LeNet-5 Architecture Diagram ============
+\begin{frame}
+  \frametitle{Architektura LeNet-5}
+  \begin{center}
+    \includegraphics[width=0.9\textwidth]{LeNet-5_architecture.png}
+  \end{center}
+\end{frame}
+
+% ============ Slide 3: LeNet-5 - Historia i Architektura ============
 \begin{frame}[fragile]
   \frametitle{LeNet-5 - Historia i Architektura}
   \textbf{LeNet-5 - Pierwsza sieć konwolucyjna (Yann LeCun, lata 90.)}
@@ -31,7 +42,7 @@
   \textbf{Cztery kluczowe pomysły:}
   \begin{enumerate}
     \item \textbf{Kernele} - małe filtry szukające wzorów
-    \item \textbf{Współdzielanie wag} - mniej pamięci
+    \item \textbf{Współdzielenie wag} - mniej pamięci
     \item \textbf{Pooling} - zmniejszanie rozmiaru, zachowanie cech
     \item \textbf{Warstwowe uczenie} - każda warstwa uczy się bardziej skomplikowanych wzorów
   \end{enumerate}
