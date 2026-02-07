@@ -272,7 +272,7 @@ def main():
     # IMPORTANT: Skip first 500 images (used for calibration)
     # Test on remaining 9500 images for unbiased evaluation
     CALIBRATION_SAMPLES = 500
-    total_images = 1000  # Test on 1000 images (indices 500-1499)
+    total_images = 3000  # Test on 1000 images (indices 500-1499)
     correct = 0
 
     print(f"\nRunning inference on {total_images} images (indices {CALIBRATION_SAMPLES}-{CALIBRATION_SAMPLES + total_images - 1})...")

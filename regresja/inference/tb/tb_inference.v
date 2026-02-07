@@ -147,59 +147,64 @@ module tb_inference_isolated();
         $display("");
         
         // Load weights with error checking
-        file_check = $fopen("../../outputs/mem/W.mem", "r");
+        file_check = $fopen("W.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open ../../outputs/mem/W.mem");
-            $display("  Make sure you run from regresja/inference/tb/ directory");
+            $display("ERROR: Cannot open W.mem");
+            $display("  Make sure all .mem files are in the simulation directory");
+            $display("  Copy from regresja/outputs/mem/ to your sim folder");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("../../outputs/mem/W.mem", weights_mem);
+        $readmemh("W.mem", weights_mem);
         $display("  [OK] Loaded weights: 7840 entries");
-        
+
         // Load biases with error checking
-        file_check = $fopen("../../outputs/mem/B.mem", "r");
+        file_check = $fopen("B.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open ../../outputs/mem/B.mem");
+            $display("ERROR: Cannot open B.mem");
+            $display("  Make sure all .mem files are in the simulation directory");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("../../outputs/mem/B.mem", biases_mem);
+        $readmemh("B.mem", biases_mem);
         $display("  [OK] Loaded biases: 10 entries");
-        
+
         // Load test vectors (flattened format) with error checking
         file_check = $fopen("test_vectors_pixels.mem", "r");
         if (file_check == 0) begin
             $display("ERROR: Cannot open test_vectors_pixels.mem");
             $display("  Run generate_test_vectors.py first!");
-            $display("  Files must be in same directory as testbench");
+            $display("  Make sure all .mem files are in the simulation directory");
             $finish;
         end
         $fclose(file_check);
         $readmemh("test_vectors_pixels.mem", test_pixels_flat);
         $display("  [OK] Loaded pixel vectors: 78400 values");
-        
+
         file_check = $fopen("test_vectors_scores.mem", "r");
         if (file_check == 0) begin
             $display("ERROR: Cannot open test_vectors_scores.mem");
+            $display("  Make sure all .mem files are in the simulation directory");
             $finish;
         end
         $fclose(file_check);
         $readmemh("test_vectors_scores.mem", expected_scores_flat);
         $display("  [OK] Loaded score vectors: 1000 values");
-        
+
         file_check = $fopen("test_vectors_meta.mem", "r");
         if (file_check == 0) begin
             $display("ERROR: Cannot open test_vectors_meta.mem");
+            $display("  Make sure all .mem files are in the simulation directory");
             $finish;
         end
         $fclose(file_check);
         $readmemh("test_vectors_meta.mem", expected_predictions);
         $display("  [OK] Loaded predictions: 100 values");
-        
+
         file_check = $fopen("test_vectors_labels.mem", "r");
         if (file_check == 0) begin
             $display("ERROR: Cannot open test_vectors_labels.mem");
+            $display("  Make sure all .mem files are in the simulation directory");
             $finish;
         end
         $fclose(file_check);
