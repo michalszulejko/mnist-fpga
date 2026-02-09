@@ -110,6 +110,9 @@ module top (
     wire signed [31:0] class_score_0, class_score_1, class_score_2, class_score_3, class_score_4;
     wire signed [31:0] class_score_5, class_score_6, class_score_7, class_score_8, class_score_9;
 
+    // Cycle Counter
+    wire [31:0] cycle_count;
+
     // Edge Detectors
     reg img_loaded_prev;
     reg inference_done_prev;
@@ -132,6 +135,8 @@ module top (
     wire       digit_tx_send;
     wire [7:0] scores_tx_data;
     wire       scores_tx_send;
+    wire [7:0] cycle_tx_data;
+    wire       cycle_tx_send;
     
     // Display
     wire [3:0] digit_left;
@@ -360,7 +365,10 @@ module top (
         .class_score_2(class_score_2), .class_score_3(class_score_3),
         .class_score_4(class_score_4), .class_score_5(class_score_5),
         .class_score_6(class_score_6), .class_score_7(class_score_7),
-        .class_score_8(class_score_8), .class_score_9(class_score_9)
+        .class_score_8(class_score_8), .class_score_9(class_score_9),
+
+        // Cycle Counter
+        .cycle_count(cycle_count)
     );
 
     // =========================================================================
@@ -416,6 +424,13 @@ module top (
         .tx_data(scores_tx_data), .tx_send(scores_tx_send), .tx_busy(tx_busy)
     );
 
+    cycle_counter_reader u_cycle_counter_reader (
+        .clk(clk), .rst(rst),
+        .rx_data(cmd_rx_data), .rx_ready(cmd_rx_ready),
+        .cycle_count(cycle_count),
+        .tx_data(cycle_tx_data), .tx_send(cycle_tx_send), .tx_busy(tx_busy)
+    );
+
     debug_reader u_debug_reader (
         .clk(clk), .rst(rst),
         .rx_data(cmd_rx_data), .rx_ready(cmd_rx_ready),
@@ -425,10 +440,11 @@ module top (
         .tx_data(dbg_tx_data), .tx_send(dbg_tx_send), .tx_busy(tx_busy)
     );
 
-    // TX Mux: Priority to digit, then scores, then debug
+    // TX Mux: Priority to digit, then scores, then cycle counter, then debug
     assign tx_data = digit_tx_send ? digit_tx_data :
-                     scores_tx_send ? scores_tx_data : dbg_tx_data;
-    assign tx_send = digit_tx_send | scores_tx_send | dbg_tx_send;
+                     scores_tx_send ? scores_tx_data :
+                     cycle_tx_send ? cycle_tx_data : dbg_tx_data;
+    assign tx_send = digit_tx_send | scores_tx_send | cycle_tx_send | dbg_tx_send;
 
     digit_display_reader u_disp_reader (
         .clk(clk), .rst(rst),

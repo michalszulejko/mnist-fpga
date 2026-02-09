@@ -97,7 +97,10 @@ module inference (
     output reg signed [31:0] class_score_6,
     output reg signed [31:0] class_score_7,
     output reg signed [31:0] class_score_8,
-    output reg signed [31:0] class_score_9
+    output reg signed [31:0] class_score_9,
+
+    // Cycle counter output (for timing measurement)
+    output reg [31:0] cycle_count
 );
 
     // FSM States
@@ -177,6 +180,9 @@ module inference (
     reg [9:0] flat_idx;     // Flattened index for FC layers
     reg [2:0] pool_step;
     reg signed [31:0] max_score;
+
+    // Cycle counter internal register
+    reg [31:0] cycle_counter;
 
     // Address calculation helpers for current position
     wire signed [5:0] img_row_signed;
@@ -791,6 +797,23 @@ module inference (
                 default: state <= IDLE;
 
             endcase
+        end
+    end
+
+    // Cycle counter logic
+    always @(posedge clk) begin
+        if (rst) begin
+            cycle_counter <= 32'd0;
+            cycle_count <= 32'd0;
+        end else if (state == IDLE && start) begin
+            // Reset counter when inference starts
+            cycle_counter <= 32'd0;
+        end else if (state != IDLE && state != DONE_STATE) begin
+            // Count cycles during inference
+            cycle_counter <= cycle_counter + 1;
+        end else if (state == DONE_STATE) begin
+            // Latch final count when done
+            cycle_count <= cycle_counter;
         end
     end
 

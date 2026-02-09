@@ -94,6 +94,9 @@ module tb_inference_lenet_debug;
     wire signed [31:0] class_score_0, class_score_1, class_score_2, class_score_3, class_score_4;
     wire signed [31:0] class_score_5, class_score_6, class_score_7, class_score_8, class_score_9;
 
+    // Cycle Counter
+    wire [31:0] cycle_count_hw;
+
     // =========================================================================
     // Golden Reference Storage
     // =========================================================================
@@ -201,7 +204,9 @@ module tb_inference_lenet_debug;
         .class_score_6(class_score_6),
         .class_score_7(class_score_7),
         .class_score_8(class_score_8),
-        .class_score_9(class_score_9)
+        .class_score_9(class_score_9),
+
+        .cycle_count(cycle_count_hw)
     );
 
     // =========================================================================
@@ -307,6 +312,11 @@ module tb_inference_lenet_debug;
     integer tests_failed;
     integer pred_correct;
     integer pred_incorrect;
+
+    // Hardware Timing Statistics
+    reg [31:0] total_hw_cycles;
+    reg [31:0] min_hw_cycles;
+    reg [31:0] max_hw_cycles;
 
     // =========================================================================
     // Helper Tasks
@@ -417,6 +427,15 @@ module tb_inference_lenet_debug;
             monitoring_active = 0;
             test_cycles = cycle_count - test_start_cycle;
 
+            // Display timing information
+            $display("  [TIMING] Hardware cycle counter: %0d cycles (%.3f ms @ 100MHz)",
+                cycle_count_hw, cycle_count_hw / 100000.0);
+
+            // Update hardware timing statistics
+            total_hw_cycles = total_hw_cycles + cycle_count_hw;
+            if (cycle_count_hw < min_hw_cycles) min_hw_cycles = cycle_count_hw;
+            if (cycle_count_hw > max_hw_cycles) max_hw_cycles = cycle_count_hw;
+
             // 3. Check prediction
             $display("  Expected: %0d | Predicted: %0d | Label: %0d | Cycles: %0d",
                 golden_preds[img_idx], predicted_digit, golden_labels[img_idx], test_cycles);
@@ -455,6 +474,9 @@ module tb_inference_lenet_debug;
         state_change_cycle = 0;
         monitoring_active = 0;
         last_state = 6'd0;
+        total_hw_cycles = 0;
+        min_hw_cycles = 32'hFFFFFFFF;
+        max_hw_cycles = 0;
 
         $display("\n================================================================================");
         $display(" LeNet-5 Inference Testbench (DEBUG MODE) - %0d Image Test", NUM_TESTS);
@@ -510,6 +532,13 @@ module tb_inference_lenet_debug;
         $display("\nPerformance:");
         $display("  Total cycles: %0d", cycle_count);
         $display("  Average cycles per image: %0d", cycle_count / NUM_TESTS);
+
+        $display("\nHardware Cycle Counter:");
+        $display("  Total:    %0d cycles", total_hw_cycles);
+        $display("  Average:  %0d cycles (%.3f ms @ 100MHz)",
+            total_hw_cycles / NUM_TESTS, (total_hw_cycles / NUM_TESTS) / 100000.0);
+        $display("  Min:      %0d cycles", min_hw_cycles);
+        $display("  Max:      %0d cycles", max_hw_cycles);
 
         if (tests_passed === NUM_TESTS) begin
             $display("\n[SUCCESS] All %0d tests passed! FPGA matches Python exactly.", NUM_TESTS);

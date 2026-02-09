@@ -84,6 +84,9 @@ module tb_inference_lenet;
     wire signed [31:0] class_score_0, class_score_1, class_score_2, class_score_3, class_score_4;
     wire signed [31:0] class_score_5, class_score_6, class_score_7, class_score_8, class_score_9;
 
+    // Cycle Counter
+    wire [31:0] cycle_count;
+
     // =========================================================================
     // Golden Reference Storage
     // =========================================================================
@@ -199,7 +202,9 @@ module tb_inference_lenet;
         .class_score_6(class_score_6),
         .class_score_7(class_score_7),
         .class_score_8(class_score_8),
-        .class_score_9(class_score_9)
+        .class_score_9(class_score_9),
+
+        .cycle_count(cycle_count)
     );
 
     // =========================================================================
@@ -216,6 +221,11 @@ module tb_inference_lenet;
     integer pred_mismatch_python;
     integer actual_correct;       // FPGA prediction matches TRUE label (real accuracy)
     integer actual_incorrect;
+
+    // Timing Statistics
+    reg [31:0] total_cycles;
+    reg [31:0] min_cycles;
+    reg [31:0] max_cycles;
 
     // =========================================================================
     // Helper Tasks
@@ -319,6 +329,15 @@ module tb_inference_lenet;
             wait(done);
             @(posedge clk);
 
+            // Display timing information
+            $display("  [TIMING] Inference completed in %0d cycles (%.3f ms @ 100MHz)",
+                cycle_count, cycle_count / 100000.0);
+
+            // Update timing statistics
+            total_cycles = total_cycles + cycle_count;
+            if (cycle_count < min_cycles) min_cycles = cycle_count;
+            if (cycle_count > max_cycles) max_cycles = cycle_count;
+
             // 3. Check prediction
             $display("  FPGA Predicted: %0d | Python Predicted: %0d | True Label: %0d %s %s",
                 predicted_digit, golden_preds[img_idx], golden_labels[img_idx],
@@ -363,6 +382,9 @@ module tb_inference_lenet;
         pred_mismatch_python = 0;
         actual_correct = 0;
         actual_incorrect = 0;
+        total_cycles = 0;
+        min_cycles = 32'hFFFFFFFF;
+        max_cycles = 0;
 
         $display("\n================================================================================");
         $display(" LeNet-5 Inference Testbench - %0d Image Test", NUM_TESTS);
@@ -417,6 +439,13 @@ module tb_inference_lenet;
         $display("\n3. SCORE COMPARISON (All 10 logits):");
         $display("   Exact Matches: %0d/%0d tests", tests_passed, NUM_TESTS);
         $display("   Mismatches:    %0d/%0d tests", tests_failed, NUM_TESTS);
+
+        $display("\n4. INFERENCE TIMING:");
+        $display("   Total cycles:   %0d", total_cycles);
+        $display("   Average cycles: %0d (%.3f ms @ 100MHz)", total_cycles / NUM_TESTS,
+            (total_cycles / NUM_TESTS) / 100000.0);
+        $display("   Min cycles:     %0d (%.3f ms)", min_cycles, min_cycles / 100000.0);
+        $display("   Max cycles:     %0d (%.3f ms)", max_cycles, max_cycles / 100000.0);
 
         if (tests_passed === NUM_TESTS && pred_match_python === NUM_TESTS) begin
             $display("\n[SUCCESS] FPGA matches Python exactly (bit-exact).");

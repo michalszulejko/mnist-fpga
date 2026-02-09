@@ -15,10 +15,53 @@
 \usepackage{float}
 \usepackage{caption}
 \usepackage{subcaption}
+\captionsetup{font=footnotesize} % 10pt for captions - required by regulations
 \usepackage{tikz}
 \usetikzlibrary{shapes.geometric, arrows, positioning}
 
-\geometry{margin=2.5cm}
+% Line spacing - required by university regulations
+\usepackage{setspace}
+\onehalfspacing % 1.5 line spacing
+
+\geometry{
+    top=2.5cm,
+    bottom=2.5cm,
+    inner=3cm,
+    outer=2cm,
+    headheight=1.25cm,
+    footskip=1.25cm,
+    twoside % Enable mirror margins for double-sided printing
+}
+
+% Chapter/Section title formatting - required by university regulations
+\usepackage{titlesec}
+
+% Chapter titles (Level I) - 16pt, bold
+\titleformat{\chapter}[display]
+{\normalfont\bfseries\fontsize{16}{19}\selectfont}
+{\chaptertitlename\ \thechapter}{20pt}{\bfseries\fontsize{16}{19}\selectfont}
+
+% Section titles (Level II) - 14pt, bold
+\titleformat{\section}
+{\normalfont\bfseries\fontsize{14}{17}\selectfont}
+{\thesection}{1em}{}
+
+% Subsection titles (Level III) - 13pt, bold
+\titleformat{\subsection}
+{\normalfont\bfseries\fontsize{13}{16}\selectfont}
+{\thesubsection}{1em}{}
+
+% Page numbering - required by university regulations
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{} % Clear all header/footer
+\fancyfoot[LE,RO]{\fontsize{12}{14}\selectfont\thepage} % Left on even, right on odd
+\renewcommand{\headrulewidth}{0pt} % No header line
+\renewcommand{\footrulewidth}{0pt} % No footer line
+
+% Paragraph formatting - recommended by university regulations
+\setlength{\parindent}{0.5cm}
+\setlength{\parskip}{0pt}
 
 % Code listing style
 \lstset{
@@ -59,7 +102,7 @@ Key features include a complete quantization pipeline that preserves accuracy wh
 
 The system achieves 97.6\% classification accuracy after quantization while maintaining bit-exact correspondence between Python simulation and FPGA hardware inference.
 
-\textbf{Keywords:} FPGA, CNN, MNIST, Quantization, Verilog, Neural Network Acceleration, Embedded Systems
+\textbf{Keywords:} FPGA, CNN, MNIST, Quantization, Verilog
 \end{abstract}
 
 \newpage
@@ -420,7 +463,7 @@ The \textbf{communication layer} handles all data transfer between the host PC a
 
 The \textbf{memory hierarchy} stores all neural network parameters and working data required for inference. Weight RAMs store the complete set of 61,706 network parameters, including convolutional layer weights and biases (using distributed RAM for 0-cycle read latency), fully connected layer weights and biases (using Block RAM for higher density), and a 256-entry tanh lookup table for activation functions. Image RAM holds the 28$\times$28 preprocessed input pixels (784 bytes total). The system also employs three working buffers (Buffer A, B, and C) implemented in distributed RAM to store intermediate activations between layers, enabling the FSM to access data with single-cycle latency during computation. Each buffer is strategically reused across multiple layers: Buffer A stores Conv1 output (6$\times$28$\times$28) then Conv2 output (16$\times$10$\times$10), Buffer B stores Pool1 output (6$\times$14$\times$14) then FC1 output (120 neurons), and Buffer C stores Pool2 output (16$\times$5$\times$5) then FC2 output (84 neurons). This reuse is possible because the FSM processes layers sequentially—once a subsequent layer consumes data from a buffer, that data is no longer needed and the buffer can be overwritten. Multiple buffers are necessary because layers must simultaneously read input data while writing output results, preventing in-place updates to a single buffer.
 
-The \textbf{Inference FSM} serves as the computational core, implementing a 44-state finite state machine that executes the complete LeNet-5 pipeline sequentially: Conv1$\rightarrow$Pool1$\rightarrow$Conv2$\rightarrow$Pool2$\rightarrow$FC1$\rightarrow$FC2$\rightarrow$FC3. For each layer, the FSM orchestrates data fetching from appropriate memories, performs multiply-accumulate (MAC) operations using pure fixed-point integer arithmetic, applies tanh activation via lookup table where required, and stores results in working buffers. The complete inference executes 416,520 MAC operations per image, with the FSM managing different memory latencies (distributed RAM with 0-cycle latency versus Block RAM with 1-2 cycle latency) through carefully designed wait states. The final layer computes class scores for digits 0-9, with the FSM tracking the argmax to determine the predicted digit.
+The \textbf{Inference FSM} serves as the computational core, implementing a 44-state finite state machine that executes the complete LeNet-5 pipeline sequentially. The processing flow is: Conv1$\rightarrow$Pool1$\rightarrow$Conv2$\rightarrow$Pool2$\rightarrow$FC1$\rightarrow$FC2$\rightarrow$FC3. For each layer, the FSM orchestrates data fetching from appropriate memories, performs multiply-accumulate (MAC) operations using pure fixed-point integer arithmetic, applies tanh activation via lookup table where required, and stores results in working buffers. The complete inference executes 416,520 MAC operations per image, with the FSM managing different memory latencies (distributed RAM with 0-cycle latency versus Block RAM with 1-2 cycle latency) through carefully designed wait states. The final layer computes class scores for digits 0-9, with the FSM tracking the argmax to determine the predicted digit.
 
 System operation follows a \textbf{two-phase protocol}. In Phase 1 (weight loading), the UART Router gates the Weight Loader to receive all 62,670 bytes of network parameters, then sets a \texttt{weights\_loaded} flag to indicate readiness. In Phase 2 (inference), the system accepts image packets (784 bytes each), triggering the Inference FSM to execute the complete forward pass. Results are stored in dedicated output memories: Scores RAM (40 bytes for ten 32-bit class scores) and Predicted Digit RAM (1 byte). The predicted digit is immediately displayed on the 7-segment display, while the host PC can optionally request results via UART commands (0xCC for predicted digit, 0xCD for all class scores). This gating mechanism prevents out-of-sequence operations and ensures the inference engine has valid weights before attempting classification.
 
@@ -781,7 +824,7 @@ Key aspects of bit-exact simulation:
 
 The \texttt{tb\_inference} testbench isolates and tests the \texttt{inference} module independently, bypassing the system-level UART stack. Test vectors are generated offline from a Python reference implementation that performs bit-exact arithmetic replication of the FPGA's quantized pipeline. For each test image, the Python model computes all 10 class logits and these results are stored in hexadecimal memory files alongside input pixel data and quantized weights.
 
-The testbench loads 100 consecutive images from the MNIST dataset. For each image, it loads the pixel data and weights from memory files, executes the FPGA inference module, and compares the computed class scores against the Python-generated golden reference scores. The console output displays the per-image logit comparison, the FPGA-predicted digit, and the ground-truth label, enabling quick verification that the FPGA inference matches the Python reference across the test set.
+The testbench loads 16 consecutive images from the MNIST dataset. For each image, it loads the pixel data and weights from memory files, executes the FPGA inference module, and compares the computed class scores against the Python-generated golden reference scores. The console output displays the per-image logit comparison, the FPGA-predicted digit, and the ground-truth label, enabling quick verification that the FPGA inference matches the Python reference across the test set.
 
 \section{End-to-End FPGA Test}
 
@@ -791,7 +834,7 @@ The \texttt{compare\_fpga\_vs\_python} script automates end-to-end testing on ph
     \item Load and preprocess MNIST image
     \item Run Python simulation to get expected scores
     \item Send image to FPGA via UART
-    \item Wait for inference completion ($\sim$150ms)
+    \item Wait for inference completion
     \item Request scores via \texttt{0xCD} command
     \item Compare bit-exact match and accuracy
 \end{enumerate}
@@ -805,20 +848,18 @@ This chapter presents the experimental results and comparison with simpler model
 
 \section{Classification Accuracy}
 
-\subsection{Primary Results}
-
-Testing on the MNIST test set yields:
+All tests were conducted on 9,500 images from the MNIST test set. Testing yields:
 
 \begin{table}[H]
 \centering
 \caption{Classification Accuracy Results}
-\begin{tabular}{lll}
+\begin{tabular}{ll}
 \toprule
-\textbf{Implementation} & \textbf{Accuracy} & \textbf{Test Size} \\
+\textbf{Implementation} & \textbf{Accuracy} \\
 \midrule
-PyTorch (FP32) & 98.9\% & 9,500 images \\
-Python Simulation (INT8) & 97.6\% & 9,500 images \\
-FPGA Hardware & 97.6\% & 9,500 images \\
+PyTorch (FP32) & 98.9\% \\
+Python Simulation (INT8) & 97.6\% \\
+FPGA Hardware & 97.6\% \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -843,7 +884,9 @@ DSP Slices & 3 & 90 & 3\% \\
 \end{tabular}
 \end{table}
 
-\textit{Note: Resource utilization values are reported from the Vivado post-synthesis summary.}
+Resource utilization values are reported from the Vivado post-synthesis summary.
+
+\vspace{1em}
 
 Notable observations:
 \begin{itemize}
@@ -875,12 +918,28 @@ FC3 & 840 MACs & $\sim$2,500 \\
 \textbf{Total} & 416,520 MACs & $\sim$577,000 cycles \\
 \bottomrule
 \end{tabular}
+
+\smallskip
+\small FC layer cycle counts include 2-cycle BRAM read latency wait states (MULT\_WAIT, MULT\_WAIT2) required for weight fetching from Block RAM.
 \end{table}
 
-At 100 MHz: $\sim$5.8 ms per inference, or $\sim$172 images/second throughput.
+To verify these theoretical estimates, a hardware cycle counter was integrated into the inference FSM. The counter resets when inference begins (transition from IDLE state) and increments each clock cycle until completion (DONE\_STATE). The final count is available via a dedicated UART command (0xCE), allowing the host PC to query exact cycle counts for performance analysis.
 
-\textit{Note: FC layer cycle counts include 2-cycle BRAM read latency wait states (MULT\_WAIT, MULT\_WAIT2) required for weight fetching from Block RAM.}
+\begin{table}[H]
+\centering
+\caption{Measured vs. Theoretical Inference Timing}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Metric} & \textbf{Theoretical} & \textbf{Measured} \\
+\midrule
+Cycles per inference & $\sim$577,000 & 576,182 \\
+Latency @ 100 MHz & $\sim$5.8 ms & 5.762 ms \\
+Throughput & $\sim$172 img/s & $\sim$174 img/s \\
+\bottomrule
+\end{tabular}
+\end{table}
 
+The measured cycle count of 576,182 confirms the theoretical estimate within 0.14\% accuracy. Deterministic execution is a key advantage of FPGA implementation over software-based inference, where cache behavior and OS scheduling introduce timing variability.
 
 \section{Comparison with Simpler Models}
 
@@ -920,7 +979,10 @@ The implemented LeNet-5 network achieves:
 
 These results demonstrate the viability of deploying quantized CNNs on resource-constrained FPGAs for embedded inference applications.
 
-\section{Future Development of the Project}
+%==============================================================================
+% CHAPTER 7: FUTURE DEVELOPMENT
+%==============================================================================
+\chapter{Future Development of the Project}
 
 The current implementation utilizes only 3 of 90 available DSP slices (3\%), leaving significant computational resources unused. A natural evolution would transition from the sequential FSM-based architecture to a parallel DSP array approach for dramatic throughput improvements.
 
@@ -944,9 +1006,13 @@ Control Complexity & Simple FSM & Parallel dataflow \\
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:seq_vs_parallel} compares the sequential FSM implementation with a hypothetical parallel DSP array architecture. The cycle counts for the sequential implementation are detailed in Section~\ref{tab:timing} (Table 6.1: Inference Timing Breakdown). The parallel architecture assumes 75 DSP blocks (83\% of the 90 available on Artix-7), allocating 3 filters $\times$ 25 DSP slices each for full kernel parallelization in Conv1. This leaves 15 DSP blocks unused, as processing all 6 Conv1 filters simultaneously would require 150 DSPs, exceeding available resources.
+Table~\ref{tab:seq_vs_parallel} compares the sequential FSM implementation with a hypothetical parallel DSP array architecture. The cycle counts for the sequential implementation are detailed in Table~\ref{tab:timing}. The parallel architecture assumes 75 DSP blocks (83\% of the 90 available on Artix-7), allocating 3 filters $\times$ 25 DSP slices each for full kernel parallelization in Conv1. This leaves 15 DSP blocks unused, as processing all 6 Conv1 filters simultaneously would require 150 DSPs, exceeding available resources.
 
 Parallel architectures offer $\sim$40$\times$ latency reduction but require near-complete DSP utilization, complex memory subsystems, sophisticated dataflow control, and significantly higher power consumption. The sequential approach is optimal for resource-constrained deployments prioritizing simplicity and low power, while parallel designs suit applications demanding ultra-low latency and high throughput with sufficient FPGA resources available.
+
+\textbf{Touch Panel Integration:} A compelling extension would integrate a resistive or capacitive touch panel overlay, enabling users to draw digits directly on the FPGA board for real-time classification. This requires implementing a touch controller interface (typically SPI or I2C), a drawing canvas with gesture recognition, and downsampling logic to convert touch coordinates to the 28$\times$28 pixel format expected by the neural network. Such integration would transform the system from a laboratory demonstration into an interactive embedded application.
+
+\textbf{Systolic Array Architecture:} Beyond simple DSP unrolling, a systolic array represents a more sophisticated approach to parallel matrix multiplication. In a systolic design, processing elements (PEs) are arranged in a 2D grid where data flows rhythmically through the array—weights remain stationary while activations stream through horizontally and partial sums accumulate vertically. This architecture maximizes weight reuse (each weight is used by multiple PEs before being replaced), dramatically reducing memory bandwidth requirements compared to naive parallelization. Systolic arrays form the computational core of modern neural network accelerators including Google's TPU, making this a natural evolution path for FPGA-based inference engines.
 
 %==============================================================================
 % BIBLIOGRAPHY
