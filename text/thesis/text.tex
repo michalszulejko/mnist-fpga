@@ -24,6 +24,8 @@
 \captionsetup{font=footnotesize} % 10pt for captions - required by regulations
 \usepackage{tikz}
 \usetikzlibrary{shapes.geometric, arrows, positioning, fit, backgrounds, calc}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 
 % Color definitions for FSM diagrams
 \colorlet{darkred}{red!80!black}
@@ -206,27 +208,129 @@ A Field-Programmable Gate Array (FPGA) is a semiconductor device containing conf
 
 FPGAs implement computation through \textbf{spatial parallelism}—operations execute simultaneously across physically distributed logic rather than sequentially through shared arithmetic units. This architectural difference provides several advantages: deterministic latency without caches or branch prediction, custom bit-width arithmetic (e.g., 8-bit integers instead of 32-bit floats), and power efficiency typically in single-digit watts compared to 200+ watts for high-performance GPUs. These characteristics make FPGAs particularly suitable for embedded neural network inference where power constraints and real-time guarantees are critical.
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{basys3-board.png}
+\caption{Digilent Basys3 Development Board featuring Xilinx Artix-7 XC7A35T FPGA}
+\label{fig:basys3_board}
+\end{figure}
+
 Modern FPGAs contain three primary resource types: \textbf{Look-Up Tables (LUTs)} implement combinational logic by storing truth tables in SRAM; \textbf{Flip-Flops} provide clocked storage for sequential circuits; and \textbf{Block RAM} offers dedicated memory blocks for data storage. Memory architecture significantly impacts performance—Block RAM provides high capacity but introduces multi-cycle read latency, while distributed RAM (LUT-based) enables single-cycle access at the cost of consuming logic resources. The choice between memory types affects state machine design and overall throughput (as demonstrated in this work's LeNet-5 implementation on Artix-7).
 
 \section{Convolutional Neural Networks}
 
 Convolutional Neural Networks are deep learning architectures designed for processing grid-structured data, particularly images. The fundamental innovation is \textbf{weight sharing}: instead of connecting every input pixel to every output neuron (as in fully-connected networks), CNNs apply small learnable filters repeatedly across the input, dramatically reducing parameter counts while preserving spatial relationships.
 
-Three core operations define CNNs, illustrated using LeNet-5 as an example (see Figure~\ref{fig:lenet5_architecture} in Section~3.1):
+Three core operations define CNNs: convolution for feature extraction, pooling for spatial reduction, and activation functions for nonlinearity. These operations are illustrated using LeNet-5 as an example (see Figure~\ref{fig:lenet5_architecture} in Section~3.1).
 
-\textbf{Convolution} slides filters (typically 3$\times$3 or 5$\times$5 kernels) across the input, computing dot products at each position to detect local patterns like edges or textures. As an example, the LeNet-5 architecture (detailed in Figure~\ref{fig:lenet5_architecture}, Section~3.1) processes 32$\times$32 input images, but this implementation adapts it for native 28$\times$28 MNIST images. To preserve spatial dimensions when applying 5$\times$5 kernels, \textbf{padding} is employed—adding 2 pixels of zeros on each border effectively expands 28$\times$28 to 32$\times$32 before convolution. This allows the kernel to operate on edge pixels: when centered at the top-left corner (0,0) of the original image, the 5$\times$5 kernel extends into the padded border, ensuring all original pixels receive equal receptive field coverage. Without padding, a 5$\times$5 kernel on 28$\times$28 input would produce only 24$\times$24 output, losing spatial information at boundaries.
+\subsection{Convolution}
 
-\textbf{Pooling} (labeled as S2 and S4 in the LeNet-5 example, Figure~\ref{fig:lenet5_architecture}) downsamples feature maps by applying reduction functions (max or average) over windows, providing limited translation invariance and reducing spatial dimensions. After the first convolutional layer produces 28$\times$28 feature maps, 2$\times$2 average pooling with stride 2 reduces them to 14$\times$14, halving both dimensions.
+Convolution slides learnable filters (typically 3$\times$3 or 5$\times$5 kernels) across the input, computing dot products at each position to detect local patterns like edges, textures, and higher-level features. Each kernel acts as a feature detector, producing an activation map that highlights where specific patterns appear in the input image.
 
-\textbf{Activation functions} introduce nonlinearity—historically tanh or sigmoid, now predominantly ReLU ($\max(0, x)$) \parencite{relu}—enabling networks to learn complex, non-linear decision boundaries. This implementation uses tanh activation after each convolutional and fully-connected layer, matching the original LeNet-5 design.
+The LeNet-5 architecture (detailed in Figure~\ref{fig:lenet5_architecture}, Section~3.1) processes 32$\times$32 input images, but this implementation adapts it for native 28$\times$28 MNIST images. To preserve spatial dimensions when applying 5$\times$5 kernels, \textbf{padding} is employed—adding 2 pixels of zeros on each border effectively expands 28$\times$28 to 32$\times$32 before convolution. This allows the kernel to operate on edge pixels: when centered at the top-left corner (0,0) of the original image, the 5$\times$5 kernel extends into the padded border, ensuring all original pixels receive equal receptive field coverage. Without padding, a 5$\times$5 kernel on 28$\times$28 input would produce only 24$\times$24 output, losing spatial information at boundaries.
+
+The \textbf{stride} parameter controls how many pixels the kernel moves between successive positions. A stride of 1 (used in LeNet-5 convolutional layers) produces dense feature maps, while larger strides reduce output dimensions and computational cost.
+
+\subsection{Pooling}
+
+Pooling operations downsample feature maps by applying reduction functions over local windows, providing two key benefits: spatial dimension reduction (decreasing computational requirements in subsequent layers) and limited translation invariance (making the network more robust to small input shifts).
+
+Two common pooling strategies exist: \textbf{max pooling} selects the maximum value in each window (preserving the strongest activations), while \textbf{average pooling} computes the mean (providing smoother, more distributed representations). The LeNet-5 architecture (labeled as S2 and S4 in Figure~\ref{fig:lenet5_architecture}) uses 2$\times$2 average pooling with stride 2, which non-overlapping windows that halve both spatial dimensions. After the first convolutional layer produces 28$\times$28 feature maps, average pooling reduces them to 14$\times$14, cutting memory requirements and computation by 75\% while retaining essential features.
+
+\subsection{Activation Functions}
+
+Activation functions introduce nonlinearity into neural networks, enabling them to learn complex decision boundaries. Without nonlinear activations, stacked layers collapse to a single linear transformation regardless of depth.
+
+\subsubsection{ReLU (Rectified Linear Unit)}
+
+ReLU is defined as $f(x) = \max(0, x)$ and has become the default activation in modern deep learning due to computational efficiency.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.45\textwidth,
+    height=4cm,
+    xlabel={$x$},
+    ylabel={$f(x)$},
+    grid=major,
+    xmin=-3, xmax=3,
+    ymin=-0.5, ymax=3,
+    axis lines=middle,
+]
+\addplot[blue, thick, domain=-3:0, samples=2] {0};
+\addplot[blue, thick, domain=0:3, samples=2] {x};
+\end{axis}
+\end{tikzpicture}
+\caption{ReLU: $f(x) = \max(0, x)$}
+\label{fig:relu}
+\end{figure}
+
+\textbf{Pros:} Computationally efficient, avoids vanishing gradients, sparse activation. \textbf{Cons:} ``Dying ReLU'' problem, not zero-centered.
+
+\subsubsection{Tanh (Hyperbolic Tangent)}
+
+Tanh is defined as $f(x) = \tanh(x) = \frac{e^x - e^{-x}}{e^x + e^{-x}}$, producing an S-curve mapping to $[-1, 1]$.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.45\textwidth,
+    height=4cm,
+    xlabel={$x$},
+    ylabel={$f(x)$},
+    grid=major,
+    xmin=-3, xmax=3,
+    ymin=-1.2, ymax=1.2,
+    axis lines=middle,
+]
+\addplot[red, thick, domain=-3:3, samples=100] {tanh(x)};
+\end{axis}
+\end{tikzpicture}
+\caption{Tanh: $f(x) = \tanh(x)$}
+\label{fig:tanh}
+\end{figure}
+
+\textbf{Pros:} Zero-centered outputs, smooth gradients, stronger than sigmoid. \textbf{Cons:} Vanishing gradients for large $|x|$, computationally expensive. This LeNet-5 implementation uses tanh (matching the original 1998 design) via a 256-entry lookup table (Section~4.4).
+
+\subsubsection{Sigmoid}
+
+Sigmoid is defined as $f(x) = \sigma(x) = \frac{1}{1 + e^{-x}}$, mapping inputs to $(0, 1)$ for probabilistic interpretation.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.45\textwidth,
+    height=4cm,
+    xlabel={$x$},
+    ylabel={$f(x)$},
+    grid=major,
+    xmin=-3, xmax=3,
+    ymin=-0.2, ymax=1.2,
+    axis lines=middle,
+]
+\addplot[green!60!black, thick, domain=-3:3, samples=100] {1/(1+exp(-x))};
+\end{axis}
+\end{tikzpicture}
+\caption{Sigmoid: $f(x) = \frac{1}{1 + e^{-x}}$}
+\label{fig:sigmoid}
+\end{figure}
+
+\textbf{Pros:} Probabilistic interpretation, smooth and differentiable. \textbf{Cons:} Severe vanishing gradients, not zero-centered, computationally expensive. Now primarily used for binary classification outputs and LSTM gates.
+
+\subsubsection{Comparison and FPGA Considerations}
+
+Modern CNNs predominantly use ReLU for hidden layers due to computational efficiency and superior gradient flow. For FPGA deployment, activation function choice significantly impacts hardware complexity: ReLU requires only simple thresholding logic, while tanh and sigmoid need lookup tables or exponential computations. This implementation uses tanh (matching the original 1998 LeNet-5 design) via a 256-entry lookup table (Section~4.4), achieving 97.6\% accuracy on MNIST.
 
 LeNet-5, developed by Yann LeCun in 1998 for handwritten digit recognition, established the canonical CNN architecture pattern (see detailed architecture diagram in Figure~\ref{fig:lenet5_architecture}, Section~3.1): alternating convolutional/pooling layers (C1-S2-C3-S4) for hierarchical feature extraction, followed by fully-connected layers (C5-F6-OUTPUT) for classification. Despite its age, LeNet-5 remains pedagogically valuable due to its simplicity (61,706 parameters, 416,520 multiply-accumulate operations per inference) while demonstrating core principles applicable to modern architectures like ResNet and EfficientNet.
 
-\section{Serial Communication Protocols}
+\section{Universal Asynchronous Receiver-Transmitter}
 
-Serial communication transmits data sequentially over a single wire or differential pair, trading throughput for reduced pin count and board complexity compared to parallel buses. UART (Universal Asynchronous Receiver-Transmitter) is the most common asynchronous serial protocol, requiring no shared clock between transmitter and receiver. Instead, both sides agree on a baud rate (bits per second) in advance, and the receiver synchronizes on start bits marking each byte transmission.
+UART (Universal Asynchronous Receiver-Transmitter) is an asynchronous serial communication protocol widely used for point-to-point data transmission between microcontrollers, FPGAs, and host computers. Unlike synchronous protocols, UART requires no shared clock signal between transmitter and receiver. Instead, both devices agree on a baud rate (bits per second) in advance, and the receiver synchronizes on start bits marking each byte transmission. This simplicity makes UART ideal for FPGA-to-PC communication in embedded systems, including neural network weight loading and inference result transmission as implemented in this work.
 
-For applications transmitting structured data (e.g., neural network weights), higher-level protocols use marker sequences to delimit packets. A key challenge is \textbf{binary-safe detection}: marker bytes may appear in arbitrary data payloads, requiring payload-length-aware parsing to prevent false packet termination.
+For applications transmitting structured binary data (e.g., neural network weights), higher-level protocols use marker sequences to delimit packets. A key challenge is \textbf{binary-safe detection}: marker bytes may appear in arbitrary data payloads, requiring payload-length-aware parsing to prevent false packet termination.
 
 \begin{figure}[H]
 \centering
@@ -330,9 +434,27 @@ The MNIST database of handwritten digits \parencite{mnist_dataset} contains:
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.3\textwidth]{mnist_sample.png}
-\caption{Example MNIST handwritten digit \parencite{mnist_dataset}}
+\begin{subfigure}{0.25\textwidth}
+    \centering
+    \includegraphics[width=0.6\textwidth]{mnist_sample.png}
+    \caption{Digit 9}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.25\textwidth}
+    \centering
+    \includegraphics[width=0.6\textwidth]{mnist_digit_2.png}
+    \caption{Digit 2}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.25\textwidth}
+    \centering
+    \includegraphics[width=0.6\textwidth]{mnist_digit_7.png}
+    \caption{Digit 7}
+\end{subfigure}
+\caption{Example MNIST handwritten digits from the dataset \parencite{mnist_dataset}}
 \end{figure}
+
+The dataset split into training and testing sets serves a critical purpose in machine learning model development. The training set (60,000 images) is used exclusively for learning model parameters through backpropagation and gradient descent. The test set (10,000 images) provides an unbiased evaluation of the final model's performance on previously unseen data, ensuring that accuracy measurements reflect true generalization capability rather than memorization of training examples. This separation is essential for detecting overfitting, where a model performs well on training data but fails to generalize to new inputs. The MNIST train-test split is standardized across the machine learning community, enabling direct comparison of results with published literature and establishing reproducible benchmarks for handwritten digit classification systems.
 
 \subsection{Preprocessing Pipeline}
 
@@ -371,6 +493,15 @@ Loss Function & Cross-Entropy \\
 \end{table}
 
 \textbf{Batch Size} determines how many training samples are processed together before updating network weights—larger batches provide more stable gradient estimates but require more memory, while very small batches (e.g., 1) cause noisy updates that may prevent convergence, making the choice of 64 a practical balance between stability and computational efficiency. \textbf{Epochs} specify how many complete passes through the entire training dataset are performed—10 epochs means the network sees all 60,000 MNIST images 10 times. \textbf{Learning Rate} controls the step size during weight updates—smaller values (0.001) ensure stable convergence but slower training. \textbf{Optimizer} defines the weight update algorithm—Adam (Adaptive Moment Estimation) adapts learning rates per parameter and combines momentum for faster convergence. \textbf{Loss Function} measures prediction error—Cross-Entropy compares predicted class probabilities against true labels, penalizing confident incorrect predictions more heavily.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{training_metrics.png}
+\caption{Training progress over 10 epochs showing loss convergence (left) and accuracy improvement (right). The model achieves 98.9\% training accuracy and 98.8\% test accuracy after 10 epochs.}
+\label{fig:training_metrics}
+\end{figure}
+
+The training curves demonstrate effective learning dynamics with rapid convergence in the initial epochs followed by gradual refinement. The loss decreases sharply from 0.25 to below 0.05 within the first two epochs, then continues gradual descent to approximately 0.02 by epoch 10. Training accuracy improves from approximately 93\% to over 99\%, while test accuracy closely tracks at 98.8\%, indicating excellent generalization capability. The close correspondence between training and test performance throughout all epochs demonstrates that the model avoids overfitting and successfully learns meaningful digit representations rather than memorizing training examples. This strong baseline performance at 98.9\% accuracy provides an ideal starting point for the subsequent quantization process, which aims to preserve classification capability while enabling efficient fixed-point arithmetic on FPGA hardware.
 
 \section{Quantization Strategy}
 
@@ -1114,7 +1245,7 @@ Resource utilization values are reported from the Vivado post-synthesis summary.
 
 \vspace{1em}
 
-Notable observations:
+The implementation targets the Basys3 development board (shown in Figure~\ref{fig:basys3_board}) featuring the Xilinx Artix-7 XC7A35T FPGA. Notable observations:
 \begin{itemize}
     \item balanced resource allocation: 8\% LUTs for logic, 14\% for distributed RAM,
     \item Block RAM used for weight storage (16 blocks, 32\% utilization),
@@ -1193,7 +1324,7 @@ Key observations:
 
 This implementation achieves competitive accuracy among comparable FPGA implementations while maintaining moderate resource requirements.
 
-\section{Summary}
+\section{Key Results}
 
 The implemented LeNet-5 network achieves:
 \begin{itemize}
