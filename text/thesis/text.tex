@@ -1,7 +1,7 @@
 \documentclass[12pt,a4paper]{report}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[english]{babel}
+\usepackage[polish,english]{babel}
 \usepackage{geometry}
 \usepackage{graphicx}
 \usepackage{amsmath}
@@ -13,11 +13,22 @@
 \usepackage{xcolor}
 \usepackage{hyperref}
 \usepackage{float}
+\usepackage{enumitem}
+\setlist[itemize]{label=\textbullet}
+
+% Bibliography - Harvard/author-date style
+\usepackage[style=authoryear, backend=biber, sorting=nyt, maxbibnames=99]{biblatex}
+\addbibresource{references.bib}
 \usepackage{caption}
 \usepackage{subcaption}
 \captionsetup{font=footnotesize} % 10pt for captions - required by regulations
 \usepackage{tikz}
-\usetikzlibrary{shapes.geometric, arrows, positioning}
+\usetikzlibrary{shapes.geometric, arrows, positioning, fit, backgrounds, calc}
+
+% Color definitions for FSM diagrams
+\colorlet{darkred}{red!80!black}
+\colorlet{midgray}{gray!60}
+\colorlet{darkgreen}{green!60!black}
 
 % Line spacing - required by university regulations
 \usepackage{setspace}
@@ -59,6 +70,14 @@
 \renewcommand{\headrulewidth}{0pt} % No header line
 \renewcommand{\footrulewidth}{0pt} % No footer line
 
+% Redefine plain style (used by \chapter, \tableofcontents, etc.)
+\fancypagestyle{plain}{%
+    \fancyhf{} % Clear all header/footer
+    \fancyfoot[LE,RO]{\fontsize{12}{14}\selectfont\thepage} % Same positioning as fancy
+    \renewcommand{\headrulewidth}{0pt}
+    \renewcommand{\footrulewidth}{0pt}
+}
+
 % Paragraph formatting - recommended by university regulations
 \setlength{\parindent}{0.5cm}
 \setlength{\parskip}{0pt}
@@ -85,14 +104,16 @@
 
 \begin{document}
 
-\maketitle
-
-\tableofcontents
+% Page 2: Blank (Page 1 will be the official title page from merge)
+\thispagestyle{empty}
+\mbox{}
 \newpage
 
+% Page 3: English Abstract
 %==============================================================================
 % ABSTRACT
 %==============================================================================
+\thispagestyle{empty}
 \begin{abstract}
 In the early days of artificial intelligence, neural networks were primarily trained on CPUs, which lacked the necessary power for deep architectures. The 2012 debut of AlexNet marked a turning point by leveraging the massive parallelism of GPUs to significantly accelerate matrix operations. However, the high energy demands of GPUs have driven a shift toward more efficient hardware, such as FPGAs and ASICs, to optimize inference for embedded systems.
 
@@ -105,6 +126,40 @@ The system achieves 97.6\% classification accuracy after quantization while main
 \textbf{Keywords:} FPGA, CNN, MNIST, Quantization, Verilog
 \end{abstract}
 
+% Page 4: Blank
+\thispagestyle{empty}
+\mbox{}
+\newpage
+
+% Page 5: Polish Abstract (Streszczenie)
+%==============================================================================
+% STRESZCZENIE (POLISH ABSTRACT)
+%==============================================================================
+\thispagestyle{empty}
+\begin{otherlanguage}{polish}
+\begin{abstract}
+Na początku rozwoju sztucznej inteligencji sieci neuronowe trenowano głównie na procesorach CPU, które nie zapewniały wystarczającej mocy obliczeniowej dla głębokich architektur. Przełomem okazał się rok 2012 i pojawienie się architektury AlexNet, która wykorzystała masowy paralelizm procesorów GPU do znacznego przyspieszenia operacji macierzowych. Wysokie zużycie energii przez procesory graficzne skłoniło jednak badaczy do poszukiwania bardziej efektywnych rozwiązań sprzętowych, takich jak układy FPGA i ASIC, szczególnie dla systemów wbudowanych.
+
+Niniejsza praca przedstawia kompletną implementację konwolucyjnej sieci neuronowej LeNet-5 przeznaczonej do klasyfikacji odręcznie pisanych cyfr ze zbioru MNIST. System zrealizowano na płycie rozwojowej Basys3 z układem Xilinx Artix-7 XC7A35T. Projekt obejmuje trzy główne etapy: (1) uczenie modelu LeNet-5 w frameworku PyTorch z kwantyzacją po treningu do 8-bitowych liczb całkowitych, (2) implementację silnika inferencji w języku Verilog jako 44-stanowego automatu skończonego ze specjalizowaną obsługą opóźnień pamięci BRAM, oraz (3) weryfikację poprawności działania poprzez symulację w języku Python i testy na rzeczywistym sprzęcie z wykorzystaniem komunikacji UART.
+
+Do kluczowych osiągnięć projektu należą: kompletny proces kwantyzacji zachowujący wysoką dokładność klasyfikacji przy jednoczesnym umożliwieniu efektywnej arytmetyki stałoprzecinkowej, modularna architektura wykorzystująca hybrydową hierarchię pamięci (pamięć rozproszoną dla buforów aktywacji, pamięć blokową dla przechowywania wag sieci) oraz niezawodny protokół komunikacji UART pozwalający na ładowanie wag i przeprowadzanie inferencji w czasie rzeczywistym. Implementacja demonstruje możliwość praktycznego wdrożenia sieci neuronowych na układach FPGA o ograniczonych zasobach.
+
+System osiąga 97.6\% dokładności klasyfikacji po kwantyzacji, zachowując bitową zgodność między symulacją programową w Pythonie a sprzętową implementacją na FPGA.
+
+\textbf{Słowa kluczowe:} FPGA, CNN, MNIST, kwantyzacja, Verilog
+\end{abstract}
+\end{otherlanguage}
+
+% Page 6: Blank
+\thispagestyle{empty}
+\mbox{}
+\newpage
+
+% Page 7: Table of Contents - First page with visible page number
+% Set page counter to 7 (PDF page 7 after merging with title page)
+\setcounter{page}{7}
+\tableofcontents
+\thispagestyle{fancy}
 \newpage
 
 %==============================================================================
@@ -114,13 +169,13 @@ The system achieves 97.6\% classification accuracy after quantization while main
 
 \section{Background and Motivation}
 
-Deep neural networks demand extraordinary computational resources, performing billions of multiply-accumulate operations for a single inference. Traditional CPU architectures proved inadequate for such workloads, prompting the exploration of specialized accelerators. The watershed moment arrived in 2012 when AlexNet demonstrated that Graphics Processing Units could dramatically accelerate deep learning training through massively parallel processing, achieving breakthrough performance on the ImageNet classification challenge \cite{alexnet}. This discovery catalyzed widespread adoption of GPUs for neural network development, fundamentally reshaping the AI research landscape and enabling the deep learning revolution.
+Deep neural networks demand extraordinary computational resources, performing billions of multiply-accumulate operations for a single inference. Traditional CPU architectures proved inadequate for such workloads, prompting the exploration of specialized accelerators. The watershed moment arrived in 2012 when AlexNet demonstrated that Graphics Processing Units could dramatically accelerate deep learning training through massively parallel processing, achieving breakthrough performance on the ImageNet classification challenge \parencite{alexnet}. This discovery catalyzed widespread adoption of GPUs for neural network development, fundamentally reshaping the AI research landscape and enabling the deep learning revolution.
 
-Despite their training dominance, GPUs face significant challenges in deployment scenarios. Power consumption exceeding 200 watts, substantial physical size, and high cost make GPUs impractical for embedded and edge applications. Field-Programmable Gate Arrays have emerged as compelling alternatives for neural network inference, offering reconfigurable hardware that bridges the gap between software flexibility and hardware efficiency \cite{fpga_cnn_survey}. FPGAs provide distinct advantages: energy consumption in single-digit watts, deterministic latency for real-time systems, support for custom bit-width arithmetic enabling aggressive quantization, and the ability to implement application-specific datapaths. These characteristics make FPGAs particularly suitable for resource-constrained deployments in autonomous systems, industrial automation, telecommunications infrastructure, and aerospace applications where power efficiency and reliability are paramount.
+Despite their training dominance, GPUs face significant challenges in deployment scenarios. Power consumption exceeding 200 watts, substantial physical size, and high cost make GPUs impractical for embedded and edge applications. Field-Programmable Gate Arrays have emerged as compelling alternatives for neural network inference, offering reconfigurable hardware that bridges the gap between software flexibility and hardware efficiency \parencite{fpga_cnn_survey}. FPGAs provide distinct advantages: energy consumption in single-digit watts, deterministic latency for real-time systems, support for custom bit-width arithmetic enabling aggressive quantization, and the ability to implement application-specific datapaths. These characteristics make FPGAs particularly suitable for resource-constrained deployments in autonomous systems, industrial automation, telecommunications infrastructure, and aerospace applications where power efficiency and reliability are paramount.
 
 \section{Scope of the Thesis}
 
-This work demonstrates a complete implementation of the classic LeNet-5 convolutional neural network for MNIST digit classification on the Xilinx Artix-7 XC7A35T FPGA (Digilent Basys3 board). The system integrates three components: PyTorch-based training with post-training quantization to 8-bit integers, Verilog RTL inference engine implemented as a 44-state finite state machine with dedicated BRAM latency handling, and comprehensive verification ensuring bit-exact correspondence between software simulation and hardware execution. The LeNet-5 architecture processes 28$\times$28 grayscale images through two convolutional layers (with 5$\times$5 kernels), average pooling, and three fully-connected classification layers, with all weights and activations quantized to enable efficient fixed-point arithmetic on FPGA fabric. \cite{lecun1998}
+This work demonstrates a complete implementation of the classic LeNet-5 convolutional neural network for MNIST digit classification on the Xilinx Artix-7 XC7A35T FPGA (Digilent Basys3 board). The system integrates three components: PyTorch-based training with post-training quantization to 8-bit integers, Verilog RTL inference engine implemented as a 44-state finite state machine with dedicated BRAM latency handling, and comprehensive verification ensuring bit-exact correspondence between software simulation and hardware execution. The LeNet-5 architecture processes 28$\times$28 grayscale images through two convolutional layers (with 5$\times$5 kernels), average pooling, and three fully-connected classification layers, with all weights and activations quantized to enable efficient fixed-point arithmetic on FPGA fabric. \parencite{lecun1998}
 Implementation highlights include a complete quantization workflow that accounts for scale propagation through average pooling layers while preserving classification accuracy, a modular RTL design utilizing distributed RAM for convolutional layers and Block RAM for fully-connected weights, a 256-entry tanh lookup table for activation functions, and a robust UART-based protocol for weight loading and real-time inference control. The implementation achieves 97.6\% accuracy on MNIST classification (bit-exact match with quantized Python model) and matches floating-point PyTorch accuracy with zero degradation. These results validate FPGA-based neural network deployment as viable for embedded applications where power efficiency and deterministic latency are critical requirements.
 
 \section{Historical Context}
@@ -128,10 +183,10 @@ Implementation highlights include a complete quantization workflow that accounts
 LeNet-5 is a pioneering convolutional neural network architecture developed by Yann LeCun and colleagues in the 1990s for handwritten digit recognition. This architecture established several fundamental principles that remain relevant in modern deep learning:
 
 \begin{itemize}
-    \item \textbf{Local Receptive Fields:} Small convolutional kernels that detect local features
-    \item \textbf{Weight Sharing:} The same kernel applied across the entire input, reducing parameters
-    \item \textbf{Subsampling (Pooling):} Spatial dimension reduction for translation invariance
-    \item \textbf{Hierarchical Feature Extraction:} Progressive abstraction from edges to digits
+    \item \textbf{Local Receptive Fields:} small convolutional kernels that detect local features,
+    \item \textbf{Weight Sharing:} the same kernel applied across the entire input, reducing parameters,
+    \item \textbf{Subsampling (Pooling):} spatial dimension reduction for translation invariance,
+    \item \textbf{Hierarchical Feature Extraction:} progressive abstraction from edges to digits.
 \end{itemize}
 
 What distinguishes LeNet-5 from classical machine learning models such as decision trees, random forests, and support vector machines is its ability to automatically learn hierarchical feature representations directly from raw pixel data. Traditional machine learning approaches require manual feature engineering—extracting handcrafted features like edge histograms, Histogram of Oriented Gradients (HOG), or Scale-Invariant Feature Transform (SIFT) descriptors—before classification can occur. LeNet-5 eliminates this bottleneck through end-to-end learning, where convolutional layers progressively discover optimal features during training, from low-level edges to high-level digit shapes. This architectural advantage, combined with inherent translation invariance through pooling, enables LeNet-5 to achieve superior accuracy on image classification tasks while requiring minimal domain expertise in feature design.
@@ -163,7 +218,7 @@ Three core operations define CNNs, illustrated using LeNet-5 as an example (see 
 
 \textbf{Pooling} (labeled as S2 and S4 in the LeNet-5 example, Figure~\ref{fig:lenet5_architecture}) downsamples feature maps by applying reduction functions (max or average) over windows, providing limited translation invariance and reducing spatial dimensions. After the first convolutional layer produces 28$\times$28 feature maps, 2$\times$2 average pooling with stride 2 reduces them to 14$\times$14, halving both dimensions.
 
-\textbf{Activation functions} introduce nonlinearity—historically tanh or sigmoid, now predominantly ReLU ($\max(0, x)$) \cite{relu}—enabling networks to learn complex, non-linear decision boundaries. This implementation uses tanh activation after each convolutional and fully-connected layer, matching the original LeNet-5 design.
+\textbf{Activation functions} introduce nonlinearity—historically tanh or sigmoid, now predominantly ReLU ($\max(0, x)$) \parencite{relu}—enabling networks to learn complex, non-linear decision boundaries. This implementation uses tanh activation after each convolutional and fully-connected layer, matching the original LeNet-5 design.
 
 LeNet-5, developed by Yann LeCun in 1998 for handwritten digit recognition, established the canonical CNN architecture pattern (see detailed architecture diagram in Figure~\ref{fig:lenet5_architecture}, Section~3.1): alternating convolutional/pooling layers (C1-S2-C3-S4) for hierarchical feature extraction, followed by fully-connected layers (C5-F6-OUTPUT) for classification. Despite its age, LeNet-5 remains pedagogically valuable due to its simplicity (61,706 parameters, 416,520 multiply-accumulate operations per inference) while demonstrating core principles applicable to modern architectures like ResNet and EfficientNet.
 
@@ -176,7 +231,7 @@ For applications transmitting structured data (e.g., neural network weights), hi
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.9\textwidth]{UART.png}
-\caption{UART 8N1 Frame Format}
+\caption{UART 8N1 Frame Format \parencite{uart_video}}
 \label{fig:uart_waveform}
 \end{figure}
 
@@ -186,7 +241,7 @@ Figure~\ref{fig:uart_waveform} illustrates the transmission of ASCII character '
 
 \section{Neural Network Quantization}
 
-Quantization reduces neural network computational, time needed for arithmetic operations and memory requirements by converting floating-point parameters to lower-precision fixed-point representations \cite{ptq_fpga}. \textbf{Post-training quantization} applies after training completes, mapping FP32 weights to INT8 via scale factors $W_{\text{scale}} = 127 / \max(|W|)$. Biases typically require higher precision (INT32) to prevent overflow during accumulation. The quantization introduces rounding error but often preserves accuracy—for MNIST classification, a drop can be minimized to less than 1\% compared to the FP32 baseline.
+Quantization reduces neural network computational, time needed for arithmetic operations and memory requirements by converting floating-point parameters to lower-precision fixed-point representations \parencite{ptq_fpga}. \textbf{Post-training quantization} applies after training completes, mapping FP32 weights to INT8 via scale factors $W_{\text{scale}} = 127 / \max(|W|)$. Biases typically require higher precision (INT32) to prevent overflow during accumulation. The quantization introduces rounding error but often preserves accuracy—for MNIST classification, a drop can be minimized to less than 1\% compared to the FP32 baseline.
 
 Hardware implementations benefit substantially from quantization: INT8 multipliers consume far less area and power than FP32 units, and reduced memory footprint enables deployment on resource-constrained devices. The inference pipeline typically accumulates multiply-accumulate products in higher precision (INT32), then applies scaling (arithmetic right shift), activation, and saturation back to INT8. Verification requires bit-exact simulation to ensure hardware arithmetic matches the quantized software model across all test cases.
 
@@ -202,7 +257,7 @@ This chapter describes the training pipeline for the LeNet-5 model, including th
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.9\textwidth]{../presentation/LeNet-5_architecture.png}
-\caption{LeNet-5 Architecture \cite{lenet_image}}
+\caption{LeNet-5 Architecture \parencite{lenet_image}}
 \label{fig:lenet5_architecture}
 \end{figure}
 
@@ -210,73 +265,73 @@ The implemented model is the classic LeNet-5 architecture (see Figure~\ref{fig:l
 
 \textbf{Convolutional Layer 1:}
 \begin{itemize}
-    \item 6 filters with $5 \times 5$ kernels
-    \item Padding 2, stride 1
-    \item Tanh activation
-    \item Output: $6 \times 28 \times 28$
-    \item Captures low-level features: edges, corners, curves
+    \item 6 filters with $5 \times 5$ kernels,
+    \item padding 2, stride 1,
+    \item tanh activation,
+    \item output: $6 \times 28 \times 28$,
+    \item captures low-level features: edges, corners, curves.
 \end{itemize}
 
 \textbf{Average Pooling Layer 1:}
 \begin{itemize}
-    \item $2 \times 2$ kernel, stride 2
-    \item Output: $6 \times 14 \times 14$
-    \item Subsampling for translation invariance
+    \item $2 \times 2$ kernel, stride 2,
+    \item output: $6 \times 14 \times 14$,
+    \item subsampling for translation invariance.
 \end{itemize}
 
 \textbf{Convolutional Layer 2:}
 \begin{itemize}
-    \item 16 filters with $5 \times 5$ kernels across 6 input channels
-    \item No padding, stride 1
-    \item Tanh activation
-    \item Output: $16 \times 10 \times 10$
-    \item Combines features into higher-level patterns
+    \item 16 filters with $5 \times 5$ kernels across 6 input channels,
+    \item no padding, stride 1,
+    \item tanh activation,
+    \item output: $16 \times 10 \times 10$,
+    \item combines features into higher-level patterns.
 \end{itemize}
 
 \textbf{Average Pooling Layer 2:}
 \begin{itemize}
-    \item $2 \times 2$ kernel, stride 2
-    \item Output: $16 \times 5 \times 5$ = 400 features
-    \item Further spatial reduction
+    \item $2 \times 2$ kernel, stride 2,
+    \item output: $16 \times 5 \times 5$ = 400 features,
+    \item further spatial reduction.
 \end{itemize}
 
 \textbf{Fully Connected Layer 1:}
 \begin{itemize}
-    \item 400 input features from flattened pool output
-    \item 120 output neurons
-    \item Tanh activation
+    \item 400 input features from flattened pool output,
+    \item 120 output neurons,
+    \item tanh activation.
 \end{itemize}
 
 \textbf{Fully Connected Layer 2:}
 \begin{itemize}
-    \item 120 input features
-    \item 84 output neurons
-    \item Tanh activation
+    \item 120 input features,
+    \item 84 output neurons,
+    \item tanh activation.
 \end{itemize}
 
 \textbf{Fully Connected Layer 3:}
 \begin{itemize}
-    \item 84 input features
-    \item 10 output neurons (one per digit class)
-    \item No activation (raw logits for classification)
+    \item 84 input features,
+    \item 10 output neurons (one per digit class),
+    \item no activation (raw logits for classification).
 \end{itemize}
 
 \section{Dataset and Preprocessing}
 
 \subsection{MNIST Dataset}
 
-The MNIST database of handwritten digits \cite{mnist_dataset} contains:
+The MNIST database of handwritten digits \parencite{mnist_dataset} contains:
 \begin{itemize}
-    \item 60,000 training images
-    \item 10,000 test images
-    \item Each image: $28 \times 28$ pixels, grayscale (0-255)
-    \item 10 classes (digits 0-9)
+    \item 60,000 training images,
+    \item 10,000 test images,
+    \item each image: $28 \times 28$ pixels, grayscale (0-255),
+    \item 10 classes (digits 0-9).
 \end{itemize}
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.3\textwidth]{mnist_sample.png}
-\caption{Example MNIST handwritten digit \cite{mnist_dataset}}
+\caption{Example MNIST handwritten digit \parencite{mnist_dataset}}
 \end{figure}
 
 \subsection{Preprocessing Pipeline}
@@ -297,7 +352,7 @@ x_{int8} = \text{clip}\left(\text{round}(x_{normalized} \times 127), -128, 127\r
 
 \section{Training Configuration}
 
-The model is trained using PyTorch \cite{pytorch} with the following hyperparameters:
+The model is trained using PyTorch \parencite{pytorch} with the following hyperparameters:
 
 \begin{table}[H]
 \centering
@@ -394,7 +449,7 @@ This chapter describes the FPGA implementation of the CNN inference engine, incl
 
 \section{Target Hardware}
 
-The implementation targets the Digilent Basys3 development board \cite{basys3_manual}, featuring:
+The implementation targets the Digilent Basys3 development board \parencite{basys3_manual}, featuring:
 
 \begin{table}[H]
 \centering
@@ -498,38 +553,38 @@ FC3 & 84 & 10 & 850 & 840 MACs \\
 
 \textbf{Convolutional Layer 1:}
 \begin{itemize}
-    \item \textit{Parameters:} 6 output channels $\times$ (5$\times$5 kernel $\times$ 1 input channel + 1 bias) = 6 $\times$ (25 + 1) = 156
+    \item \textit{Parameters:} 6 output channels $\times$ (5$\times$5 kernel $\times$ 1 input channel + 1 bias) = 6 $\times$ (25 + 1) = 156,
     \item \textit{MAC Operations:} 6 output channels $\times$ 28$\times$28 output positions $\times$ 5$\times$5 kernel operations
     \begin{equation}
     \text{MACs}_{Conv1} = 6 \times 784 \times 25 = 117,600
     \end{equation}
-    Each output pixel requires 25 multiplications (5$\times$5 kernel) and 25 accumulations.
+    each output pixel requires 25 multiplications (5$\times$5 kernel) and 25 accumulations.
 \end{itemize}
 
 \textbf{Convolutional Layer 2:}
 \begin{itemize}
-    \item \textit{Parameters:} 16 output channels $\times$ (5$\times$5 kernel $\times$ 6 input channels + 1 bias) = 16 $\times$ (150 + 1) = 2,416
+    \item \textit{Parameters:} 16 output channels $\times$ (5$\times$5 kernel $\times$ 6 input channels + 1 bias) = 16 $\times$ (150 + 1) = 2,416,
     \item \textit{MAC Operations:} 16 output channels $\times$ 10$\times$10 output positions $\times$ (5$\times$5 kernel $\times$ 6 input channels)
     \begin{equation}
     \text{MACs}_{Conv2} = 16 \times 100 \times 150 = 240,000
     \end{equation}
-    Each output pixel requires 150 multiplications (5$\times$5$\times$6 kernel volume) across all input channels.
+    each output pixel requires 150 multiplications (5$\times$5$\times$6 kernel volume) across all input channels.
 \end{itemize}
 
 \textbf{Fully Connected Layer 1:}
 \begin{itemize}
-    \item \textit{Parameters:} 400 inputs $\times$ 120 outputs + 120 biases = 48,000 + 120 = 48,120
+    \item \textit{Parameters:} 400 inputs $\times$ 120 outputs + 120 biases = 48,000 + 120 = 48,120,
     \item \textit{MAC Operations:} 120 output neurons $\times$ 400 input features
     \begin{equation}
     \text{MACs}_{FC1} = 120 \times 400 = 48,000
     \end{equation}
-    Each neuron computes a dot product with all 400 inputs.
+    each neuron computes a dot product with all 400 inputs.
 \end{itemize}
 
 \textbf{Fully Connected Layer 2:}
 \begin{itemize}
-    \item \textit{Parameters:} 120 inputs $\times$ 84 outputs + 84 biases = 10,080 + 84 = 10,164
-    \item \textit{MAC Operations:} 84 output neurons $\times$ 120 input features
+    \item \textit{Parameters:} 120 inputs $\times$ 84 outputs + 84 biases = 10,080 + 84 = 10,164,
+    \item \textit{MAC Operations:} 84 output neurons $\times$ 120 input features.
     \begin{equation}
     \text{MACs}_{FC2} = 84 \times 120 = 10,080
     \end{equation}
@@ -537,12 +592,12 @@ FC3 & 84 & 10 & 850 & 840 MACs \\
 
 \textbf{Fully Connected Layer 3 (Output):}
 \begin{itemize}
-    \item \textit{Parameters:} 84 inputs $\times$ 10 outputs + 10 biases = 840 + 10 = 850
+    \item \textit{Parameters:} 84 inputs $\times$ 10 outputs + 10 biases = 840 + 10 = 850,
     \item \textit{MAC Operations:} 10 output neurons $\times$ 84 input features
     \begin{equation}
     \text{MACs}_{FC3} = 10 \times 84 = 840
     \end{equation}
-    This layer produces the final 10 class scores (one per digit 0-9).
+    this layer produces the final 10 class scores (one per digit 0-9).
 \end{itemize}
 
 \textbf{Total Computational Requirements:}
@@ -618,11 +673,178 @@ At a high level, the FSM executes five distinct processing phases: (1) Conv1 wit
 
 Each layer's computation follows a structured pipeline designed to maximize throughput while accounting for memory access latencies. The state machine implements explicit wait states (LOAD\_BIAS\_WAIT, PREFETCH2, MULT\_WAIT) to handle Block RAM's registered output delay—critical for the fully-connected layers where weight storage in BRAM introduces 1-2 cycle read latency compared to the zero-latency distributed RAM used for convolutional weights.
 
-\textbf{Convolutional Layer Pipeline:} For each output position, the FSM requests the layer's bias (states LOAD\_BIAS, LOAD\_BIAS\_WAIT), initializes the accumulator, then enters the convolution loop (CONV state) where it performs kernel$\times$kernel$\times$channels multiply-accumulate operations. Layer 1 executes 25 MACs per position (5$\times$5 kernel, 1 input channel), while Layer 2 executes 150 MACs per position (5$\times$5 kernel, 6 input channels). After accumulation, the TANH state clips the result to 8-bit range, computes the lookup table index by adding 128 offset, and retrieves the activated value. The SAVE state writes this result to the appropriate working buffer at the computed address.
+\textbf{Convolutional Layer Pipeline:} Figure~\ref{fig:fsm_conv} illustrates the complete state machine for convolutional layers.
 
-\textbf{Average Pooling Pipeline:} Pooling states implement a 5-cycle pipeline per 2$\times$2 window. The POOL state fetches four values from the previous layer's output buffer using sequential addressing. The POOL\_CALC state sums these four values and performs an arithmetic right shift by 2 (integer division by 4), then writes the averaged result to the next buffer. This division critically reduces the activation scale from 127.0 to 31.75, affecting subsequent layer quantization parameters.
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    state/.style={
+        rectangle, draw, thick, rounded corners=3pt,
+        minimum width=3.5cm, minimum height=1.1cm,
+        text centered, font=\normalsize,
+        fill=#1!12, draw=#1!50
+    },
+    state/.default=blue,
+    arrow/.style={->, >=stealth, thick},
+    looparrow/.style={->, >=stealth, thick, densely dashed, blue!50},
+    annot/.style={font=\small\ttfamily, text=black!50},
+    elabel/.style={font=\small, text=black!70},
+]
 
-\textbf{Fully-Connected Layer Pipeline:} Dense layers exhibit more complex state sequences due to BRAM latency. After loading bias, the FSM enters PREFETCH to request the first weight, then PREFETCH2 (states 41-43) to wait for BRAM's registered output. The MULT state loops over all input features, issuing weight read requests and accumulating products. Because BRAM delivers data with 1-2 cycle delay, the FSM employs wait states MULT\_WAIT (states 35-37) and MULT\_WAIT2 (states 38-40) to stall execution until data becomes available. The FSM alternates between MULT (issue request, accumulate previous result) and these wait states as needed based on BRAM latency characteristics. After completing all MACs, TANH applies activation via LUT lookup, and SAVE stores the neuron output.
+    \node[state=gray]           (c_idle)  at (0, 0)       {IDLE};
+    \node[state=blue]           (c_bias)  at (0, -1.6)    {LOAD\_BIAS};
+    \node[state=blue]           (c_bwait) at (0, -3.2)    {LOAD\_BIAS\_WAIT};
+    \node[state=cyan]           (c_pre)   at (0, -4.8)    {PREFETCH};
+    \node[state=darkgreen]      (c_conv)  at (0, -6.4)    {CONV};
+    \node[state=orange]         (c_tanh)  at (0, -8.0)    {TANH};
+    \node[state=orange]         (c_save)  at (0, -9.6)    {SAVE};
+    \node[state=gray]           (c_next)  at (0, -11.2)   {...};
+
+    % Main flow
+    \draw[arrow] (c_idle) -- node[right, elabel] {start} (c_bias);
+    \draw[arrow] (c_bias) -- (c_bwait);
+    \draw[arrow] (c_bwait) -- node[right, elabel] {acc $\leftarrow$ bias} (c_pre);
+    \draw[arrow] (c_pre) -- node[right, elabel] {1 cycle wait} (c_conv);
+    \draw[arrow] (c_conv) -- node[right, elabel] {kernel done} (c_tanh);
+    \draw[arrow] (c_tanh) -- node[right, elabel] {LUT lookup} (c_save);
+    \draw[arrow] (c_save) -- node[right, elabel] {all positions done} (c_next);
+
+    % Kernel self-loop
+    \draw[looparrow] (c_conv.west) -- ++(-2.5, 0) |- (c_pre.west);
+    \node[annot, anchor=east] at (-4.55, -5.6) {next kr,kc};
+
+    % Position loop (back to LOAD_BIAS)
+    \draw[looparrow] (c_save.west) -- ++(-5.5, 0) |- (c_bias.west);
+    \node[annot, anchor=east] at (-7.6, -5.8) {next r,c,f};
+
+\end{tikzpicture}
+\caption{Convolutional layer FSM pattern}
+\label{fig:fsm_conv}
+\end{figure}
+
+The convolutional layer pipeline implements a sequential state machine that processes each output position through multiple stages. Each of the two convolutional layers (L1, L2) instantiates this pattern with layer-specific state names. The FSM begins in the IDLE state, waiting for a start signal to commence processing. Upon activation, the state machine transitions to LOAD\_BIAS, which requests the layer's bias value from memory. The LOAD\_BIAS\_WAIT state follows, introducing a one-cycle delay to accommodate Block RAM read latency and initializing the accumulator with the bias value (acc $\leftarrow$ bias, as shown on the transition label). The PREFETCH state prepares the first pixel and weight operands for the convolution operation with a "1 cycle wait" as indicated. The CONV state (green) forms the computational core, executing kernel$\times$kernel$\times$channels multiply-accumulate operations—Layer 1 performs 25 MACs per position (5$\times$5 kernel, 1 input channel), while Layer 2 performs 150 MACs per position (5$\times$5 kernel, 6 input channels). A dashed loop arrow labeled "next kr,kc" (next kernel row, kernel column) indicates that the CONV state iterates over all kernel positions, returning to PREFETCH for each successive weight-pixel pair. After completing all kernel multiplications (indicated by the "kernel done" transition label), the FSM advances to the TANH state (orange), which clips the accumulated result to 8-bit range (-128 to 127), computes the lookup table index by adding a 128 offset, and retrieves the activated value from the 256-entry tanh LUT (labeled "LUT lookup"). The SAVE state (orange) writes this activated result to the appropriate working buffer (Buffer A for Conv1 output, Buffer A again for Conv2 output) at the computed spatial address. A second dashed loop labeled "next r,c,f" (next row, column, filter) returns execution from SAVE back to LOAD\_BIAS, iterating over all output feature map positions and filters until the entire convolutional layer output is generated. Following complete convolution of all feature maps (indicated by "all positions done"), the FSM transitions to the ellipsis state (...) representing continuation to the next pipeline stage (pooling). Solid arrows represent forward transitions through the pipeline, while dashed arrows indicate iteration loops at different granularities—the inner "next kr,kc" loop iterates over individual kernel elements, while the outer "next r,c,f" loop iterates over all spatial positions and output channels.
+
+\textbf{Average Pooling Pipeline:} Figure~\ref{fig:pooling_pipeline} shows the detailed architecture of the average pooling pipeline.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    state/.style={
+        rectangle, draw, thick, rounded corners=3pt,
+        minimum width=3.5cm, minimum height=1.1cm,
+        text centered, font=\normalsize,
+        fill=#1!12, draw=#1!50
+    },
+    state/.default=teal,
+    arrow/.style={->, >=stealth, thick},
+    looparrow/.style={->, >=stealth, thick, densely dashed, blue!50},
+    annot/.style={font=\small\ttfamily, text=black!50},
+    elabel/.style={font=\small, text=black!70},
+]
+
+    \node[state=gray] (start) at (0, 0) {...};
+    \node[state=cyan, below=1.6cm of start] (pool) {POOL};
+    \node[state=teal, below=2.0cm of pool] (calc) {POOL\_CALC};
+    \node[state=gray, below=1.6cm of calc] (end) {...};
+    
+    % Main flow arrows
+    \draw[arrow] (start) -- (pool);
+    \draw[arrow] (pool) -- node[right, elabel] {4 vals fetched} (calc);
+    \draw[arrow] (calc) -- (end);
+    
+    % Self-loop on POOL for fetching 4 values
+    \draw[looparrow] (pool.west) -- ++(-2.5, 0) |- (pool.north west);
+    \node[annot, anchor=east, align=right] at (-1.5, -1.3) {next value\\(4 iterations)};
+    
+    % Operation descriptions
+    \node[annot, left=2.6cm of pool, anchor=east, align=right, yshift=6pt] 
+        {fetch 2$\times$2 window\\sequential addressing};
+    
+    \node[annot, left=0.3cm of calc, anchor=east, align=right] 
+        {accumulate sum\\divide by 4 (shift $\gg$2)};
+    
+    % Iteration indicator
+    \node[font=\small\itshape, text=black!50, below=0.8cm of end, align=center] 
+        {Iterates over all 2$\times$2 windows in the feature map\\[2pt]
+        Stride = 2, reduces scale from 127.0 to 31.75};
+
+\end{tikzpicture}
+\caption{Average pooling pipeline architecture}
+\label{fig:pooling_pipeline}
+\end{figure}
+
+The pooling pipeline implements a 5-cycle operation for each 2$\times$2 window, executing after convolutional layers complete their feature map generation. The diagram shows the core two-state pooling operation embedded within the larger inference pipeline, with ellipsis states (...) at the beginning and end indicating continuation from the previous convolution stage and transition to the next processing stage. The POOL state (cyan block) handles the iterative fetching and initial accumulation of the four values in a 2$\times$2 window. This state executes 4 times per window, as indicated by the dashed self-loop arrow labeled "next value (4 iterations)" that returns from POOL back to itself. During each iteration, the state performs sequential addressing to read one value (v[0], then v[1], then v[2], then v[3]) from the previous layer's output buffer stored in distributed RAM. The left-side annotation describes the operations: "fetch 2$\times$2 window / sequential addressing". After all 4 values have been fetched and accumulated (indicated by the solid arrow labeled "4 vals fetched"), the FSM transitions to the POOL\_CALC state (teal block). The POOL\_CALC state performs two operations as described in the left annotation: "accumulate sum / divide by 4 (shift $\gg$2)". The accumulation completes the summation begun in POOL, and the division is implemented through an arithmetic right shift by 2 bits, which efficiently computes integer division by 4. This critical operation reduces the activation scale from 127.0 (the maximum value range entering pooling) to 31.75 (the maximum range after division), affecting quantization parameters in subsequent layers. The averaged result is then written to the next working buffer (Buffer B after Pool1, Buffer C after Pool2) at the appropriate spatial address. The FSM then transitions to the trailing ellipsis (...) representing continuation to the next pipeline stage. Below the states, an italicized note explains that this entire sequence "Iterates over all 2$\times$2 windows in the feature map" with "Stride = 2" (non-overlapping windows), reducing spatial dimensions by half—for example, transforming 28$\times$28 feature maps to 14$\times$14. The note emphasizes the scale reduction from 127.0 to 31.75, a crucial detail for maintaining numerical precision throughout the quantized network.
+
+\textbf{Fully-Connected Layer Pipeline:} Figure~\ref{fig:fsm_fc} depicts the fully-connected layer state machine with BRAM latency compensation states highlighted.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    state/.style={
+        rectangle, draw, thick, rounded corners=3pt,
+        minimum width=3.5cm, minimum height=1.1cm,
+        text centered, font=\normalsize,
+        fill=#1!12, draw=#1!50
+    },
+    state/.default=blue,
+    arrow/.style={->, >=stealth, thick},
+    looparrow/.style={->, >=stealth, thick, densely dashed, blue!50},
+    annot/.style={font=\small\ttfamily, text=black!50},
+    elabel/.style={font=\small, text=black!70},
+]
+
+    \node[state=gray]           (f_idle)  at (0, 0)       {...};
+    \node[state=blue]           (f_bias)  at (0, -1.6)    {LOAD\_BIAS};
+    \node[state=blue]           (f_bwait) at (0, -3.2)    {LOAD\_BIAS\_WAIT};
+    \node[state=cyan]           (f_pre)   at (0, -4.8)    {PREFETCH};
+    \node[state=cyan]           (f_pre2)  at (0, -6.4)    {PREFETCH2};
+    \node[state=darkgreen]      (f_mult)  at (0, -8.0)    {MULT};
+    \node[state=midgray]        (f_mw1)   at (0, -9.6)    {MULT\_WAIT};
+    \node[state=midgray]        (f_mw2)   at (0, -11.2)   {MULT\_WAIT2};
+    \node[state=orange]         (f_tanh)  at (0, -12.8)   {TANH};
+    \node[state=orange]         (f_save)  at (0, -14.4)   {SAVE};
+
+    % Flow
+    \draw[arrow] (f_idle) -- (f_bias);
+    \draw[arrow] (f_bias) -- (f_bwait);
+    \draw[arrow] (f_bwait) -- node[right, elabel] {acc $\leftarrow$ bias} (f_pre);
+    \draw[arrow] (f_pre) -- node[right, elabel] {wait cycle 1} (f_pre2);
+    \draw[arrow] (f_pre2) -- node[right, elabel] {wait cycle 2} (f_mult);
+
+    % MULT/WAIT loop
+    \draw[arrow] (f_mult) -- (f_mw1);
+    \draw[arrow] (f_mw1) -- (f_mw2);
+    \draw[looparrow] (f_mw2.west) -- ++(-1.2, 0) |- (f_mult.west);
+    \node[annot, anchor=east] at (-3.25, -9.4) {next input};
+
+    % Exit to TANH
+    \draw[arrow] (f_mult.east) -- ++(1.0, 0) |- (f_tanh.east);
+    \node[annot, anchor=west] at (3.05, -10.4) {all inputs done};
+
+    % TANH -> SAVE
+    \draw[arrow] (f_tanh) -- node[right, elabel] {LUT lookup} (f_save);
+
+    % Next neuron loop
+    \draw[looparrow] (f_save.west) -- ++(-4.5, 0) |- (f_bias.west);
+    \node[annot, anchor=east] at (-6.55, -8.0) {next neuron};
+
+    % BRAM latency highlight box
+    \begin{scope}[on background layer]
+        \node[fit=(f_pre)(f_pre2)(f_mw1)(f_mw2),
+              fill=red!5, draw=red!30, dashed, rounded corners=6pt,
+              inner sep=10pt] (brambox) {};
+    \end{scope}
+
+    % FC3 note
+    \node[font=\normalsize, text=black!50, align=left, anchor=north west]
+        at (-3.5, -15.4) {\textit{FC3 omits TANH/SAVE; uses FC3\_NEXT instead.}};
+
+\end{tikzpicture}
+\caption{Fully-connected layer FSM pattern}
+\label{fig:fsm_fc}
+\end{figure}
+
+Dense layers exhibit more complex state sequences due to Block RAM latency, requiring explicit wait states to compensate for the 1--2 cycle read delay inherent in BRAM-based weight storage. Each of the three fully-connected layers (FC1, FC2, FC3) instantiates this pattern with layer-specific state names. The diagram shows all ten states involved in computing a single neuron output, with a shaded red region highlighting the four BRAM latency compensation states. The FSM begins at the top with the "..." (ellipsis) state representing the previous layer's completion. Execution proceeds to LOAD\_BIAS, which requests the neuron's bias value from Block RAM. The LOAD\_BIAS\_WAIT state follows, introducing a one-cycle delay to accommodate BRAM read latency and initializing the accumulator with the bias value (acc $\leftarrow$ bias, as labeled on the transition arrow). The PREFETCH state issues a read request for the first weight from BRAM. Because BRAM has registered outputs, the data is not immediately available—thus the PREFETCH2 state (cyan, part of the shaded latency compensation region) waits one additional cycle (labeled "wait cycle 1") before the weight becomes valid. After the second wait cycle ("wait cycle 2"), the FSM transitions to the MULT state (green), which forms the computational core. In MULT, the FSM issues a read request for the next weight and simultaneously accumulates the multiply-accumulate product using the weight that became available from the previous request. The MULT\_WAIT state (gray, part of the shaded region) provides the first wait cycle for the newly-requested weight data. The MULT\_WAIT2 state (gray, part of the shaded region) provides the second wait cycle. A dashed loop arrow labeled "next input" returns execution from MULT\_WAIT2 back to MULT, iterating over all input features—FC1 processes 400 inputs, FC2 processes 120 inputs, and FC3 processes 84 inputs. This alternating pattern of request-wait-accumulate continues until all input features have been multiplied and accumulated. When the final input is processed (indicated by "all inputs done" on the right-side arrow), the FSM exits the multiplication loop and transitions to the TANH state (orange). The TANH state clips the accumulated result to 8-bit range (-128 to 127), computes the lookup table index by adding a 128 offset, and retrieves the activated value from the 256-entry tanh LUT (indicated by the "LUT lookup" label). The SAVE state (orange) writes this activated neuron output to the appropriate working buffer (Buffer B for FC1, Buffer C for FC2). A final dashed loop arrow labeled "next neuron" returns execution from SAVE back to LOAD\_BIAS, iterating over all output neurons in the layer—FC1 produces 120 neurons, FC2 produces 84 neurons, and FC3 produces 10 class scores. The italicized note at the bottom clarifies that "FC3 omits TANH/SAVE; uses FC3\_NEXT instead"—the final output layer skips activation and instead uses a specialized FC3\_NEXT state that maintains a running argmax tracker to determine the predicted digit class. Solid arrows represent forward sequential transitions, while dashed arrows indicate iteration loops at different granularities (inner loop over inputs, outer loop over neurons).
 
 \textbf{Output Layer:} The final FC3 layer (states 33-37) differs slightly by omitting activation—raw logits are stored directly to the scores RAM. The FC3\_NEXT state maintains a running argmax tracker, comparing each class score and updating the predicted digit index. When all 10 scores are computed, the FSM transitions to DONE\_STATE, asserting the completion signal and returning to IDLE to await the next inference request.
 
@@ -632,18 +854,18 @@ Each convolutional output requires multiple clock cycles:
 
 \textbf{Layer 1 (per output position):}
 \begin{itemize}
-    \item 1 cycle: Load bias
-    \item 1 cycle: Wait for BRAM
-    \item 1 cycle: Prefetch
-    \item 25 cycles: 5$\times$5 MAC operations
-    \item 1 cycle: Save result
-    \item Total: $\sim$30 cycles per position $\times$ 4,704 positions = $\sim$141,120 cycles
+    \item 1 cycle: load bias,
+    \item 1 cycle: wait for BRAM,
+    \item 1 cycle: prefetch,
+    \item 25 cycles: 5$\times$5 MAC operations,
+    \item 1 cycle: save result,
+    \item total: $\sim$30 cycles per position $\times$ 4,704 positions = $\sim$141,120 cycles.
 \end{itemize}
 
 \textbf{Layer 2 (per output position):}
 \begin{itemize}
-    \item 150 cycles: 5$\times$5$\times$6 MAC operations
-    \item Total: $\sim$155 cycles per position $\times$ 1,600 positions = $\sim$248,000 cycles
+    \item 150 cycles: 5$\times$5$\times$6 MAC operations,
+    \item total: $\sim$155 cycles per position $\times$ 1,600 positions = $\sim$248,000 cycles.
 \end{itemize}
 
 \subsection{Average Pooling Implementation}
@@ -714,13 +936,14 @@ Scores RAM & 40 & Distributed & Output scores \\
 The UART Router shown in Figure~\ref{fig:system_architecture} serves as the central coordinator for all incoming UART data. The system employs a dedicated \textbf{UART Router} module to manage signal multiplexing between the UART receiver and multiple consumer modules (weight loader, image loader, command handlers). The router's primary functions are:
 
 \begin{itemize}
-    \item \textbf{Packet Detection:} Recognize protocol marker sequences (two-byte start/end markers)
-    \item \textbf{Signal Routing:} Route decoded payloads to appropriate destination modules (weight\_loader or image\_loader) based on detected marker type
-    \item \textbf{Flow Control:} Forward data bytes only when destination modules are ready, maintaining protocol synchronization
+    \item \textbf{Packet Detection:} recognize protocol marker sequences (two-byte start/end markers),
+    \item \textbf{Signal Routing:} route decoded payloads to appropriate destination modules (weight\_loader or image\_loader) based on detected marker type,
+    \item \textbf{Flow Control:} forward data bytes only when destination modules are ready, maintaining protocol synchronization.
 \end{itemize}
 
 The router uses payload-aware marker detection to ensure robustness: end markers are validated only after the complete payload (62,670 bytes for weights, 784 bytes for image) has been received. This prevents false transitions triggered by marker-like byte sequences in binary data.
 
+\newpage
 Operation is gated by a \texttt{weights\_loaded} status signal that enforces protocol ordering: weight loading is allowed only when \texttt{weights\_loaded = 0}, while image loading and command processing are allowed only when \texttt{weights\_loaded = 1}. This prevents out-of-sequence operations and ensures the inference engine has valid weights before attempting inference.
 
 Command bytes (0xCC for predicted digit, 0xCD for all class scores) are processed immediately in the idle state and forwarded to dedicated command readers for result transmission via UART TX.
@@ -728,9 +951,9 @@ Command bytes (0xCC for predicted digit, 0xCD for all class scores) are processe
 \subsection{UART Configuration}
 
 \begin{itemize}
-    \item Baud Rate: 115,200 bps
-    \item Frame Format: 8N1 (8 data bits, no parity, 1 stop bit)
-    \item Clock Frequency: 100 MHz
+    \item baud rate: 115,200 bps,
+    \item frame format: 8N1 (8 data bits, no parity, 1 stop bit),
+    \item clock frequency: 100 MHz.
 \end{itemize}
 
 \subsection{Protocol Markers}
@@ -751,6 +974,8 @@ Command bytes (0xCC for predicted digit, 0xCD for all class scores) are processe
 \bottomrule
 \end{tabular}
 \end{table}
+
+\newpage
 
 \subsection{Binary Safety}
 
@@ -797,6 +1022,8 @@ The testing and verification process relies on a three-step methodology:
 
 This methodology was validated on 9,500 MNIST test images, achieving 100\% bit-exact match across all 10 class scores with zero discrepancies.
 
+\newpage
+
 \section{Python Bit-Exact Simulation}
 
 The Python simulation replicates every step of the FPGA arithmetic pipeline:
@@ -811,13 +1038,12 @@ def convolve_layer(input_vol, weights, biases, shift, tanh_lut):
     return acc
 \end{lstlisting}
 
-
 Key aspects of bit-exact simulation:
 \begin{itemize}
-    \item Sequential MAC operations using Python integers to replicate FPGA fixed-point arithmetic
-    \item Arithmetic right shift (\texttt{>>}) for fixed-point scaling with layer-specific shift values
-    \item Clipping to 8-bit signed range before tanh LUT access
-    \item Tanh activation via direct table lookup, identical to FPGA memory access pattern
+    \item sequential MAC operations using Python integers to replicate FPGA fixed-point arithmetic,
+    \item arithmetic right shift (\texttt{>>}) for fixed-point scaling with layer-specific shift values,
+    \item clipping to 8-bit signed range before tanh LUT access,
+    \item tanh activation via direct table lookup, identical to FPGA memory access pattern.
 \end{itemize}
 
 \section{Verilog Testbench}
@@ -890,11 +1116,11 @@ Resource utilization values are reported from the Vivado post-synthesis summary.
 
 Notable observations:
 \begin{itemize}
-    \item Balanced resource allocation: 8\% LUTs for logic, 14\% for distributed RAM
-    \item Block RAM used for weight storage (16 blocks, 32\% utilization)
-    \item Minimal DSP usage (3 slices, 3.3\%) - most arithmetic in LUT-based logic
-    \item Low flip-flop utilization (4\%) indicates efficient combinational design
-    \item Total LUT utilization: 22\% (4,582 / 20,800), leaving room for expansion
+    \item balanced resource allocation: 8\% LUTs for logic, 14\% for distributed RAM,
+    \item Block RAM used for weight storage (16 blocks, 32\% utilization),
+    \item minimal DSP usage (3 slices, 3.3\%) - most arithmetic in LUT-based logic,
+    \item low flip-flop utilization (4\%) indicates efficient combinational design,
+    \item total LUT utilization: 22\% (4,582 / 20,800), leaving room for expansion.
 \end{itemize}
 
 \section{Inference latency}
@@ -959,9 +1185,9 @@ LeNet-5 & 61,706 & 97.6\% & $\sim$68 KB \\
 
 Key observations:
 \begin{itemize}
-    \item LeNet-5 achieves highest accuracy (97.6\%) despite moderate memory footprint
-    \item Convolutional weight sharing reduces parameters compared to equivalent MLP (61K vs. 101K)
-    \item Hierarchical feature extraction through multiple convolutional layers provides significant accuracy boost over simple models
+    \item LeNet-5 achieves highest accuracy (97.6\%) despite moderate memory footprint,
+    \item convolutional weight sharing reduces parameters compared to equivalent MLP (61K vs. 101K),
+    \item hierarchical feature extraction through multiple convolutional layers provides significant accuracy boost over simple models.
 \end{itemize}
 
 
@@ -971,16 +1197,70 @@ This implementation achieves competitive accuracy among comparable FPGA implemen
 
 The implemented LeNet-5 network achieves:
 \begin{itemize}
-    \item \textbf{97.6\% accuracy} on MNIST classification (INT8 quantized)
-    \item \textbf{Bit-exact} correspondence between Python and FPGA
-    \item \textbf{$\sim$5.8 ms inference latency} at 100 MHz clock frequency
-    \item \textbf{$\sim$68 KB} total memory footprint
+    \item \textbf{97.6\% accuracy} on MNIST classification (INT8 quantized),
+    \item \textbf{bit-exact} correspondence between Python and FPGA,
+    \item \textbf{$\sim$5.8 ms inference latency} at 100 MHz clock frequency,
+    \item \textbf{$\sim$68 KB} total memory footprint.
 \end{itemize}
 
 These results demonstrate the viability of deploying quantized CNNs on resource-constrained FPGAs for embedded inference applications.
 
 %==============================================================================
-% CHAPTER 7: FUTURE DEVELOPMENT
+% CHAPTER 7: SUMMARY
+%==============================================================================
+\chapter{Summary}
+
+This chapter provides a comprehensive walkthrough of the complete LeNet-5 FPGA implementation project, summarizing the journey from initial model training through hardware deployment and verification. A detailed system architecture diagram is provided in Appendix~\ref{app:system_architecture}.
+
+\section{Project Overview}
+
+This thesis presents an end-to-end implementation of the LeNet-5 convolutional neural network for MNIST handwritten digit classification on a resource-constrained FPGA platform. The project demonstrates the complete workflow required to deploy neural networks on embedded hardware: training with quantization-aware considerations, RTL implementation with careful memory architecture design, and rigorous verification ensuring bit-exact correspondence between software and hardware.
+
+The system architecture (see Appendix~\ref{app:system_architecture}, Figure~\ref{fig:system_architecture_full}) illustrates the complete data flow from the host PC through UART communication to the FPGA inference engine. The design follows a modular approach with clear separation between communication, memory, and computation subsystems.
+
+\section{Training and Quantization Pipeline}
+
+The project began with training a LeNet-5 model using PyTorch on the MNIST dataset of 60,000 handwritten digit images. The floating-point model achieved 98.9\% classification accuracy. Post-training static quantization converted all weights and activations to 8-bit integers, enabling efficient fixed-point arithmetic on FPGA fabric. The quantization pipeline required careful attention to scale propagation through layers, particularly after average pooling operations that reduce activation magnitudes by a factor of 4.
+
+The quantized model preserves 97.6\% accuracy—a modest 1.3\% drop that demonstrates the robustness of INT8 quantization for this classification task. All 61,706 network parameters (weights and biases) were exported in a binary format suitable for UART transmission to the FPGA.
+
+\section{Hardware Implementation}
+
+The FPGA implementation targets the Digilent Basys3 board featuring the Xilinx Artix-7 XC7A35T chip. The inference engine is implemented as a 44-state finite state machine that executes the complete LeNet-5 pipeline: two convolutional layers with average pooling, followed by three fully-connected classification layers.
+
+Key architectural decisions include:
+\begin{itemize}
+    \item hybrid memory architecture combining distributed RAM (for zero-latency activation buffers) with Block RAM (for high-density weight storage),
+    \item explicit BRAM latency handling through dedicated wait states in the FSM,
+    \item strategic buffer reuse across layers to minimize memory footprint,
+    \item 256-entry tanh lookup table for efficient activation function implementation.
+\end{itemize}
+
+The communication subsystem implements a binary-safe UART protocol with payload-aware marker detection, preventing false packet termination when marker-like sequences appear in weight data. A two-phase protocol ensures weights are loaded before inference begins.
+
+\section{Verification and Results}
+
+Verification followed a three-tier methodology: Python bit-exact simulation replicating FPGA arithmetic, isolated RTL testbench verification, and end-to-end hardware testing on the physical FPGA. This approach was validated on 9,500 MNIST test images, achieving 100\% bit-exact match between Python simulation and FPGA hardware across all 10 class scores.
+
+The implementation achieves:
+\begin{itemize}
+    \item 97.6\% classification accuracy (INT8 quantized),
+    \item 5.762 ms inference latency at 100 MHz (576,182 clock cycles),
+    \item approximately 174 images per second throughput,
+    \item 68 KB total memory footprint,
+    \item 22\% LUT utilization, 32\% Block RAM utilization, 3\% DSP utilization.
+\end{itemize}
+
+\section{Conclusions}
+
+This project demonstrates that deploying quantized convolutional neural networks on resource-constrained FPGAs is both feasible and practical. The sequential FSM-based architecture prioritizes simplicity and low resource utilization over raw throughput, making it suitable for embedded applications where power efficiency and deterministic latency are critical requirements.
+
+The complete system—from PyTorch training through quantization, RTL implementation, and hardware verification—provides a reference implementation for FPGA-based neural network inference. The modular design enables independent development and testing of subsystems, while the comprehensive verification methodology ensures reliable operation.
+
+The significant unused FPGA resources (particularly DSP slices at 3\% utilization) indicate substantial headroom for future optimization through parallel architectures, as discussed in the following chapter.
+
+%==============================================================================
+% CHAPTER 8: FUTURE DEVELOPMENT
 %==============================================================================
 \chapter{Future Development of the Project}
 
@@ -1017,38 +1297,22 @@ Parallel architectures offer $\sim$40$\times$ latency reduction but require near
 %==============================================================================
 % BIBLIOGRAPHY
 %==============================================================================
-\begin{thebibliography}{99}
+\printbibliography[heading=bibintoc, title={Bibliography}]
 
-\bibitem{lecun1998}
-Y. LeCun, L. Bottou, Y. Bengio, and P. Haffner, "Gradient-based learning applied to document recognition," \textit{Proceedings of the IEEE}, vol. 86, no. 11, pp. 2278-2324, 1998.
+%==============================================================================
+% APPENDIX
+%==============================================================================
+\appendix
+\chapter{System Architecture Diagram}
+\label{app:system_architecture}
 
-\bibitem{lenet_image}
-"LeNet-5 architecture diagram," Wikimedia Commons, Available: \url{https://en.wikipedia.org/wiki/LeNet\#/media/File:LeNet-5\_architecture.svg}, Accessed: Jan. 30, 2026.
+Figure~\ref{fig:system_architecture_full} provides a detailed view of the complete FPGA inference system, showing the data flow from host PC through UART communication to the inference engine and output display. This comprehensive diagram illustrates the interconnection between all major subsystems: the communication layer (UART RX/TX, protocol router), memory hierarchy (weight storage, image buffer, working memories), computation engine (inference FSM), and output interfaces (7-segment display, UART result readback).
 
-\bibitem{alexnet}
-A. Krizhevsky, I. Sutskever, and G. E. Hinton, "ImageNet classification with deep convolutional neural networks," in \textit{Advances in Neural Information Processing Systems}, vol. 25, pp. 1097-1105, 2012.
-
-\bibitem{mnist_dataset}
-Y. LeCun, C. Cortes, and C. J. Burges, "The MNIST database of handwritten digits," Available: \url{https://yann.lecun.org/exdb/mnist/}, 1998.
-
-\bibitem{fpga_cnn_survey}
-S. I. Venieris and C.-S. Bouganis, "fpgaConvNet: A framework for mapping convolutional neural networks on FPGAs," in \textit{IEEE Symposium on Field-Programmable Custom Computing Machines (FCCM)}, pp. 40-47, 2016.
-
-\bibitem{ptq_fpga}
-R. Krishnamoorthi, "Quantizing deep convolutional networks for efficient inference: A whitepaper," \textit{arXiv preprint arXiv:1806.08342}, 2018.
-
-\bibitem{pytorch}
-A. Paszke et al., "PyTorch: An imperative style, high-performance deep learning library," in \textit{Advances in Neural Information Processing Systems}, vol. 32, pp. 8024-8035, 2019.
-
-\bibitem{relu}
-V. Nair and G. E. Hinton, "Rectified linear units improve restricted Boltzmann machines," in \textit{Proc. 27th International Conference on Machine Learning (ICML)}, pp. 807-814, 2010.
-
-\bibitem{basys3_manual}
-"Basys3 FPGA Board Reference Manual," Digilent Inc., Available: \url{https://digilent.com/reference/programmable-logic/basys-3/reference-manual}, 2018.
-
-\bibitem{xilinx_ug901}
-"Vivado Design Suite User Guide: Synthesis," Xilinx UG901, Available: \url{https://www.xilinx.com/support/documentation/sw\_manuals/xilinx2020\_2/ug901-vivado-synthesis.pdf}, 2020.
-
-\end{thebibliography}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../../system_architecture_diagram.png}
+\caption{Complete System Architecture: Host PC to FPGA Inference Pipeline}
+\label{fig:system_architecture_full}
+\end{figure}
 
 \end{document}
