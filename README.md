@@ -1,50 +1,75 @@
-# FPGA-Based Neural Network Inference for MNIST Digit Classification
+# Implementation of Convolutional Neural Network on FPGA for MNIST Digit Recognition
 
-This project implements neural network inference on FPGA hardware for classifying handwritten digits (MNIST dataset). Multiple model architectures are supported, from simple logistic regression to convolutional neural networks.
+Engineering thesis project implementing neural network inference on an FPGA for handwritten digit classification. The project traces a progression from simple logistic regression through multi-layer perceptrons to a LeNet-5 CNN, with the final model deployed on an Artix-7 FPGA using INT8 quantization and UART communication.
 
 ## Project Goal
 
-- Train neural network models in Python (PyTorch/scikit-learn)
-- Export quantized weights and biases (INT8/INT32)
-- Implement inference logic in Verilog (Vivado)
-- Load model parameters to FPGA via UART
-- Send images to FPGA for real-time classification
+- Train multiple model architectures in PyTorch (logistic regression, MLP, CNN, LeNet-5)
+- Quantize trained models to INT8 weights / INT32 biases
+- Implement inference in synthesizable Verilog for Artix-7 FPGA
+- Communicate with FPGA via UART (weight loading + image inference)
+- Display predicted digit on the Basys3 7-segment display
+
+## Model Architectures
+
+| Directory | Model | Architecture | Activation | Accuracy |
+|-----------|-------|-------------|------------|----------|
+| `regresja/` | Softmax regression | 784 → 10 | — | 92.13% |
+| `2_ukryte/` | 2-hidden-layer MLP | 784 → 16 → 16 → 10 | ReLU | 95.7% |
+| `cnn/` | Simple CNN | 1 conv + 1 dense | ReLU | 99% |
+| `le-net/` | **LeNet-5** | 2 conv + 3 FC | tanh | **97.6%** |
+
+The LeNet-5 implementation in `le-net/` is the primary and most complete version, with full Verilog RTL, testbenches, and UART integration.
 
 ## Folder Structure
 
 | Folder | Description |
 |--------|-------------|
-| `regresja/` | Softmax (logistic) regression model - simple single-layer classifier |
-| `2_ukryte/` | Two-hidden-layer neural network (784 → 16 → 16 → 10) |
-| `le-net/` | LeNet-5 convolutional neural network (CNN) architecture |
-| `shared/` | Shared Python utilities used by all models |
+| `le-net/` | LeNet-5 CNN — training, quantization, Verilog RTL, testbenches, UART utilities |
+| `regresja/` | Softmax (logistic) regression model |
+| `2_ukryte/` | Two-hidden-layer MLP (784 → 16 → 16 → 10) |
+| `cnn/` | Simple CNN (1 conv layer + 1 dense layer) |
 | `test_images/` | PNG test images for FPGA inference testing |
-| `data/` | MNIST dataset and preprocessing parameters |
+| `text/` | LaTeX thesis and presentation source files |
 
 ## Workflow
 
-1. **Train model** - Run Python script (e.g., `python/soft_reg_lepsza_kwant.py`)
-2. **Export weights** - Save as `.mem` files (hex format for Verilog)
-3. **Convert to binary** - Use `regresja/python/convert_to_binary.py` for UART transmission
-4. **Upload to FPGA** - Use `send_weights.py` via serial port
-5. **Run inference** - Send test images with `send_image.py`
-6. **Check result** - Read predicted digit from 7-segment display or LEDs
+1. **Train and quantize** — `uv run python le-net/training/train_lenet.py`
+2. **Outputs** — `.bin`, `.mem`, `.npy` files generated in `le-net/outputs/`
+3. **Synthesize** — open Vivado project, run synthesis and implementation for Artix-7 XC7A35T
+4. **Upload weights** — `uv run python le-net/utils/send_weights.py`
+5. **Send image** — `uv run python le-net/testing/send_image.py`
+6. **Read result** — predicted digit shown on the 7-segment display
 
-## Hardware Requirements
+## Hardware
 
-- FPGA board with UART interface (tested on Basys 3 / Nexys A7)
-- USB-to-Serial connection (115200 baud default)
+- **Board:** Digilent Basys3 (Artix-7 XC7A35T-1CPG236C)
+- **Clock:** 100 MHz
+- **Interface:** USB-UART at 115200 baud
 
 ## Dependencies
 
-This project uses `uv` for Python package management. Install dependencies:
+Install Python dependencies with [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv sync
 ```
 
-Main dependencies: `torch`, `torchvision`, `scikit-learn`, `numpy`, `pillow`, `pyserial`
+Main packages: `torch`, `torchvision`, `scikit-learn`, `numpy`, `pillow`, `pyserial`, `pandas`, `torchinfo`, `pypdf`
 
+Additional tools:
+- **Xilinx Vivado** — FPGA synthesis and implementation
 
+## Testing
 
+```bash
+# Bit-exact quantized model accuracy (no hardware needed)
+uv run python le-net/testing/testing_python_model.py
 
+# Compare FPGA output vs Python model (requires FPGA connected via UART)
+uv run python le-net/testing/compare_fpga_vs_python.py --port COMX --count 100
+```
+
+## Thesis
+
+The full thesis document is included as `text/thesis/text.pdf`.
